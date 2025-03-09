@@ -3,6 +3,7 @@ use anyhow::Result;
 use reqwest::Client;
 use crate::config::Config;
 use std::fs;
+use crate::models::LoginResponse;
 #[allow(dead_code)]
 pub struct BetfairClient {
     client: Client,
@@ -23,7 +24,7 @@ impl BetfairClient {
     }
 
     #[allow(dead_code)]
-    pub async fn login(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn login(&mut self) -> Result<String> {
         // Open the encrypted PEM file
         let pem_contents = fs::read(&self.config.betfair.pfx_path)?;
     
@@ -42,7 +43,7 @@ impl BetfairClient {
             ("password", self.config.betfair.password.as_str()),
         ];
     
-        let response = client
+        let response: LoginResponse = client
             .post(LOGIN_URL) 
             .headers(headers)
             .header(
@@ -50,9 +51,12 @@ impl BetfairClient {
                 format!("schroedinger_{}", rand::random::<u128>()),
             )
             .form(&form)
-            .send();
+            .send()?
+            .json()?;
     
-        println!("Login response: {:?}", response);
-        Ok(())
+        match response.sessionToken {
+            Some(token) => Ok(token),
+            None => Err(anyhow::anyhow!("loginStatus: {}", response.loginStatus)),
+        }
     }
 } 

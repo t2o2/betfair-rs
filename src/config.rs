@@ -2,8 +2,10 @@ use std::fs;
 use serde::Deserialize;
 use anyhow::Result;
 use toml;
+use tracing::info;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct BetfairCredentials {
     pub username: String,
     pub password: String,
@@ -16,7 +18,6 @@ pub struct BetfairConfig {
     pub username: String,
     pub password: String,
     pub api_key: String,
-    pub pem_path: String,
     pub pfx_path: String,
     pub pfx_password: String,
 }
@@ -30,7 +31,7 @@ impl Config {
     pub fn new() -> Result<Self> {
         let config_str = fs::read_to_string("config.toml")?;
         let config: Config = toml::from_str(&config_str)?;
-        println!("Config: {:?}", config);
+        info!("Config: {:?}", config);
         Ok(config)
     }
 }

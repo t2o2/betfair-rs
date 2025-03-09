@@ -1,5 +1,5 @@
 use anyhow::Result;
-
+use tracing::info;
 mod betfair;
 mod config;
 mod models;
@@ -7,12 +7,16 @@ mod models;
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
     
-    println!("Betfair Trading Bot Starting...");
+    info!("Betfair Trading Bot Starting...");
 
     let config = config::Config::new()?;
     let mut betfair_client = betfair::BetfairClient::new(config);
-    betfair_client.login().await.unwrap();
+    let token = betfair_client.login().await?;
+    info!("Login token: {}", token);
 
     Ok(())
 } 
