@@ -3,9 +3,11 @@ use tracing::info;
 mod betfair;
 mod config;
 mod models;
+use std::error::Error;
+mod streamer;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -15,8 +17,14 @@ async fn main() -> Result<()> {
 
     let config = config::Config::new()?;
     let mut betfair_client = betfair::BetfairClient::new(config);
-    let token = betfair_client.login().await?;
-    info!("Login token: {}", token);
+    betfair_client.login().await?;
+    let token = betfair_client.get_session_token().await.unwrap();
+    info!("Betfair session token: {}", token);
 
+    betfair_client.start_listening().await?;
+    betfair_client.subscribe_to_market("1.240323652".to_string()).await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    info!("Betfair market subscribed");
     Ok(())
 } 

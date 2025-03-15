@@ -1,11 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Market {
-    pub market_id: String,
-    pub market_name: String,
-    pub total_matched: f64,
-}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Selection {
