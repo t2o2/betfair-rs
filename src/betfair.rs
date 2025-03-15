@@ -75,7 +75,12 @@ impl BetfairClient {
     pub async fn start_listening(&mut self) -> Result<()> {
         let streamer = self.streamer.as_mut().unwrap();
         streamer.connect_betfair_tls_stream().await?;
+        streamer.set_callback(Self::callback);
         streamer.start().await?;
         Ok(())
+    }
+
+    fn callback(message: String) {
+        println!("Received message: {}", message);
     }
 }
