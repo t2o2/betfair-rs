@@ -124,7 +124,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "dotenv",
- "native-tls",
  "pem",
  "pkcs8",
  "rand 0.9.0",
@@ -138,6 +137,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "webpki 0.22.4",
 ]
 
 [[package]]
@@ -728,7 +728,7 @@ dependencies = [
  "rustls 0.16.0",
  "tokio-io",
  "tokio-rustls",
- "webpki",
+ "webpki 0.21.4",
  "webpki-roots",
 ]
 
@@ -1805,7 +1805,7 @@ dependencies = [
  "log",
  "ring 0.16.20",
  "sct",
- "webpki",
+ "webpki 0.21.4",
 ]
 
 [[package]]
@@ -2307,7 +2307,7 @@ dependencies = [
  "iovec",
  "rustls 0.16.0",
  "tokio-io",
- "webpki",
+ "webpki 0.21.4",
 ]
 
 [[package]]
@@ -2684,12 +2684,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "webpki"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
+dependencies = [
+ "ring 0.17.13",
+ "untrusted 0.9.0",
+]
+
+[[package]]
 name = "webpki-roots"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a262ae37dd9d60f60dd473d1158f9fbebf110ba7b6a5051c8160460f6043718b"
 dependencies = [
- "webpki",
+ "webpki 0.21.4",
 ]
 
 [[package]]

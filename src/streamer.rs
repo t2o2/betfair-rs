@@ -1,13 +1,15 @@
-use native_tls::TlsConnector;
-use native_tls::TlsStream;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::io::Write;
-use std::net::TcpStream;
+use tokio::net::TcpStream;
+use tokio::io::AsyncWriteExt;
+use tokio_native_tls::native_tls::TlsConnector;
+use std::sync::Arc;
+use rustls::ClientConfig;
+use webpki::DnsNameRef;
+use tokio_native_tls::TlsStream;
 use tracing::info;
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tokio::io::split;
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
@@ -48,12 +50,16 @@ impl BetfairStreamer {
             self.app_key, self.ssoid
         );
         info!("{}", auth_msg);
-
-        let connector = TlsConnector::new().unwrap();
-
-        let tcp_stream = TcpStream::connect(STREAM_API_ENDPOINT)?;
-        let mut tls_stream = connector.connect(STREAM_API_HOST, tcp_stream)?;
-        tls_stream.write_all(auth_msg.as_bytes())?;
+        let tcp_stream = TcpStream::connect(STREAM_API_ENDPOINT).await?;
+        
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(Root::fetch_from_webpki_roots(None))
+            .with_no_client_auth();
+        let connector = TlsConnector::from(Arc::new(config));
+        let domain = DnsNameRef::try_from_ascii_str(STREAM_API_HOST).unwrap();
+        let tls_stream = connector.connect(domain, tcp_stream).await.unwrap();
+        let (mut reader, mut writer) = tokio::io::split(tls_stream);
         self.stream = Some(tls_stream);
         
         Ok(())
@@ -85,6 +91,7 @@ impl BetfairStreamer {
         
         self.message_sender = Some(tx_outgoing);
         let callback = self.callback.take();
+
 
         // Spawn the main stream handling task
         tokio::spawn(async move {
