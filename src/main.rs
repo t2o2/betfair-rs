@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 mod betfair;
 mod config;
-mod models;
+mod model;
 use std::error::Error;
 mod streamer;
 

@@ -3,8 +3,9 @@ use anyhow::Result;
 use reqwest::Client;
 use crate::config::Config;
 use std::fs;
-use crate::models::LoginResponse;
+use crate::model::LoginResponse;
 use crate::streamer::BetfairStreamer;
+use tracing::info;
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 
 #[allow(dead_code)]
@@ -74,13 +75,13 @@ impl BetfairClient {
 
     pub async fn start_listening(&mut self) -> Result<()> {
         let streamer = self.streamer.as_mut().unwrap();
-        streamer.connect_betfair_tls_stream().await?;
         streamer.set_callback(Self::callback);
+        streamer.connect_betfair_tls_stream().await?;
         streamer.start().await?;
         Ok(())
     }
 
     fn callback(message: String) {
-        println!("Received message: {}", message);
+        info!("callback message: {}", message);
     }
 }
