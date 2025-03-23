@@ -6,6 +6,7 @@ use std::fs;
 use crate::model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use tracing::info;
+use std::io::Write;
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 
 #[allow(dead_code)]
@@ -83,5 +84,24 @@ impl BetfairClient {
 
     fn callback(message: String) {
         info!("callback message: {}", message);
+        // let mut file = std::fs::OpenOptions::new()
+        //     .create(true)
+        //     .append(true)
+        //     .open("betfair_messages.txt")
+        //     .unwrap();
+        
+        // let pretty_json = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&message).unwrap()).unwrap();
+        // writeln!(file, "{}\n", pretty_json).unwrap();
+        // drop(file);
+        let json_data: serde_json::Value = serde_json::from_str(&message).unwrap();
+        let op = json_data["op"].as_str();
+        if op == Some("mcm") {
+            let ct = json_data["ct"].as_str();
+            if ct == Some("HEARTBEAT") {
+                info!("Heartbeat received");
+            }
+        }
     }
+
+
 }

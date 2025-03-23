@@ -108,7 +108,7 @@ impl BetfairStreamer {
 
     pub async fn subscribe(&mut self, market_id: String) -> Result<()> {
         let sub_msg = format!(
-            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}}}\r\n",
+            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
             &market_id
         );
         info!("Sending subscription: {}", sub_msg);

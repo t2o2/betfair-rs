@@ -27,3 +27,29 @@ impl fmt::Display for LoginResponse {
         write!(f, "LoginResponse {{ status: {} }}", self.loginStatus)
     }
 }
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+pub struct StreamMessage {
+    pub id: i64,
+    pub op: String,
+    pub ct: String,
+    pub clk: String, // Checkpoint, allow resuming from this point when reconnecting to the stream
+    pub pt: i64, // publishTime
+    pub mc: Vec<MarketChange>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+pub struct MarketChange {
+    pub id: i64,
+    pub rc: Vec<RunnerChange>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+pub struct RunnerChange {
+    pub id: i64, // runner id
+    pub atb: Option<Vec<f64>>, // available to back
+    pub atl: Option<Vec<f64>>, // available to lay
+}
