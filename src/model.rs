@@ -1,72 +1,51 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Selection {
-    pub selection_id: i64,
-    pub runner_name: String,
-    pub last_price_traded: Option<f64>,
+struct Orderbook {
+    bids: Vec<PriceLevel>,
+    asks: Vec<PriceLevel>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PriceSize {
-    pub price: f64,
-    pub size: f64,
-} 
-
-#[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
-pub struct LoginResponse {
-    pub sessionToken: Option<String>,
-    pub loginStatus: String,
+struct PriceLevel {
+    price: f64,
+    size: f64,
 }
 
-impl fmt::Display for LoginResponse {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "LoginResponse {{ status: {} }}", self.loginStatus)
+impl Orderbook {
+    pub fn new() -> Self {
+        Self { bids: Vec::new(), asks: Vec::new() }
     }
-}
+    
+    pub fn add_bid(&mut self, price: f64, size: f64) {
+        if size == 0.0 {
+            if let Ok(index) = self.bids.binary_search_by(|level| level.price.partial_cmp(&price).unwrap().reverse()) {
+                self.bids.remove(index);
+            }
+        } else {
+            let index = match self.bids.binary_search_by(|level| level.price.partial_cmp(&price).unwrap().reverse()) {
+                Ok(i) => i,
+                Err(i) => i,
+            };
+            self.bids.insert(index, PriceLevel { price, size });
+        }
+    }
 
-// {"op":"mcm","id":1,"clk":"AJctAKk5AJMu","pt":1742747423927,"mc":[{"id":"1.241200277","rc":[{"batb":[[0,4.3,943.24]],"id":58805}]}]}
+    pub fn add_ask(&mut self, price: f64, size: f64) {
+        if size == 0.0 {
+            if let Ok(index) = self.asks.binary_search_by(|level| level.price.partial_cmp(&price).unwrap()) {
+                self.asks.remove(index);
+            }
+        } else {
+            let index = match self.asks.binary_search_by(|level| level.price.partial_cmp(&price).unwrap()) {
+                Ok(i) => i,
+                Err(i) => i,
+            };
+            self.asks.insert(index, PriceLevel { price, size });
+        }
+    }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct MarketChangeMessage {
-    #[serde(rename = "clk")]
-    pub clock: String,
-    pub id: i64,
-    #[serde(rename = "mc")]
-    pub market_changes: Vec<MarketChange>,
-    pub op: String,
-    pub pt: i64,
-    pub ct: Option<String>,
-}
+    pub fn get_best_bid(&self) -> Option<&PriceLevel> {
+        self.bids.first()
+    }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct MarketChange {
-    pub id: String,
-    #[serde(rename = "rc")]
-    pub runner_changes: Vec<RunnerChange>
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct RunnerChange {
-    pub id: i64,
-    #[serde(rename = "batb")]
-    pub available_to_back: Option<Vec<Vec<f64>>>, // Array of [index, price, size]
-    #[serde(rename = "batl")]
-    pub available_to_lay: Option<Vec<Vec<f64>>> // Array of [index, price, size]
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct HeartbeatMessage {
-    pub clk: String,
-    pub ct: String,  // This will always be "HEARTBEAT"
-    pub id: i64,
-    pub op: String,  // This will always be "mcm"
-    pub pt: i64,    // Timestamp
+    pub fn get_best_ask(&self) -> Option<&PriceLevel> {
+        self.asks.first()
+    }
 }

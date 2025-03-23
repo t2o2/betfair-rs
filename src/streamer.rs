@@ -4,8 +4,8 @@ use tokio_native_tls::native_tls::TlsConnector;
 use tracing::{info, error, debug};
 use anyhow::Result;
 use tokio::sync::mpsc;
-use crate::model::MarketChangeMessage;
-use crate::model::HeartbeatMessage;
+use crate::msg_model::MarketChangeMessage;
+use crate::msg_model::HeartbeatMessage;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use serde_json::Value;
@@ -125,11 +125,15 @@ impl BetfairStreamer {
         }
     }
 
-    pub async fn subscribe(&mut self, market_id: String) -> Result<()> {
-        let sub_msg = format!(
+    fn create_subscription_message(market_id: &str) -> String {
+        format!(
             "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
-            &market_id
-        );
+            market_id
+        )
+    }
+
+    pub async fn subscribe(&mut self, market_id: String) -> Result<()> {
+        let sub_msg = Self::create_subscription_message(&market_id);
         info!("Sending subscription: {}", sub_msg);
         
         self.send_message(sub_msg).await?;
@@ -174,10 +178,7 @@ impl BetfairStreamer {
                             // Resubscribe to all markets
                             info!("Resubscribing to {} markets", subscribed_markets.len());
                             for market_id in &subscribed_markets {
-                                let subscription_message = format!(
-                                    "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
-                                    market_id
-                                );
+                                let subscription_message = BetfairStreamer::create_subscription_message(market_id);
                                 info!("Sending subscription: {}", subscription_message);
                                 if let Err(e) = sender.send(subscription_message).await {
                                     error!("Failed to send resubscription message: {}", e);

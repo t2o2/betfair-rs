@@ -3,7 +3,7 @@ use anyhow::{Ok, Result};
 use reqwest::Client;
 use crate::config::Config;
 use std::fs;
-use crate::model::LoginResponse;
+use crate::msg_model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use tracing::info;
 // use std::io::Write;
@@ -54,13 +54,13 @@ impl BetfairClient {
             .send()?
             .json()?;
     
-        match response.sessionToken {
+        match response.session_token {
             Some(token) => {
                 self.session_token = Some(token);
                 self.streamer = Some(BetfairStreamer::new(self.config.betfair.api_key.clone(), self.session_token.clone().unwrap()));
                 Ok(())
             }
-            None => Err(anyhow::anyhow!("loginStatus: {}", response.loginStatus)),
+            None => Err(anyhow::anyhow!("loginStatus: {}", response.login_status)),
         }
     }
 
