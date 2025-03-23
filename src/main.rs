@@ -21,10 +21,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let token = betfair_client.get_session_token().await.unwrap();
     info!("Betfair session token: {}", token);
 
-    betfair_client.start_listening().await?;
-    info!("Betfair client started listening");
+    betfair_client.connect().await?;
 
     betfair_client.subscribe_to_market("1.241200277".to_string()).await?;
+
+    betfair_client.start_listening().await?;
+    info!("Betfair client started listening");
 
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     info!("Betfair market subscribed");

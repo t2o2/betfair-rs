@@ -1,5 +1,5 @@
 use reqwest::header::HeaderMap;
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use reqwest::Client;
 use crate::config::Config;
 use std::fs;
@@ -74,10 +74,15 @@ impl BetfairClient {
         Ok(())
     }
 
-    pub async fn start_listening(&mut self) -> Result<()> {
+    pub async fn connect(&mut self) -> Result<()> {
         let streamer = self.streamer.as_mut().unwrap();
         streamer.set_callback(Self::callback);
         streamer.connect_betfair_tls_stream().await?;
+        Ok(())
+    }
+
+    pub async fn start_listening(&mut self) -> Result<()> {
+        let streamer = self.streamer.as_mut().unwrap();
         streamer.start().await?;
         Ok(())
     }

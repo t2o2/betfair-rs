@@ -9,6 +9,7 @@ use crate::model::HeartbeatMessage;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
@@ -20,9 +21,11 @@ pub struct BetfairStreamer {
     ssoid: String,
     callback: Option<MessageCallback>,
     message_sender: Option<mpsc::Sender<String>>,
+    message_receiver: Option<mpsc::Receiver<String>>,
     subscribed_markets: HashSet<String>,
-    last_heartbeat: Instant,
+    last_heartbeat: Arc<Mutex<Instant>>,
     heartbeat_threshold: Duration,
+    is_resubscribing: Arc<Mutex<bool>>,
 }
 
 impl BetfairStreamer {
@@ -32,9 +35,11 @@ impl BetfairStreamer {
             ssoid, 
             callback: None,
             message_sender: None,
+            message_receiver: None,
             subscribed_markets: HashSet::new(),
-            last_heartbeat: Instant::now(),
+            last_heartbeat: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(10))),
             heartbeat_threshold: Duration::from_secs(10),
+            is_resubscribing: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -66,7 +71,9 @@ impl BetfairStreamer {
         
         // Set up channels for message passing
         let (tx_write, mut rx_write) = mpsc::channel::<String>(100);
+        let (tx_read, rx_read) = mpsc::channel::<String>(100);
         self.message_sender = Some(tx_write);
+        self.message_receiver = Some(rx_read);
 
         // Spawn writer task
         tokio::spawn(async move {
@@ -79,7 +86,7 @@ impl BetfairStreamer {
         });
         // Spawn reader task
         tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(reader); // Use tokio's BufReader
+            let mut reader = tokio::io::BufReader::new(reader);
             let mut line = String::new();
             
             loop {
@@ -89,12 +96,10 @@ impl BetfairStreamer {
                     Ok(_) => {
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
                         debug!("Received message: {}", line);
-                        if let Ok(market_change_message) = serde_json::from_str::<MarketChangeMessage>(&line.to_string()) {
-                            debug!("Parsed MarketChangeMessage: {:?}", market_change_message);
-                        }
-
-                        if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&line.to_string()) {
-                            debug!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
+                        
+                        if let Err(e) = tx_read.send(line.clone()).await {
+                            error!("Error sending message to main task: {}", e);
+                            break;
                         }
                     }
                     Err(e) => {
@@ -133,6 +138,68 @@ impl BetfairStreamer {
     }
 
     pub async fn start(&mut self) -> Result<()> {
+        let receiver = self.message_receiver.take();
+        let Some(mut receiver) = receiver else {
+            return Err(anyhow::anyhow!("Message receiver not initialized"));
+        };
+
+        // Clone necessary components for the heartbeat task
+        let last_heartbeat = Arc::clone(&self.last_heartbeat);
+        let heartbeat_threshold = self.heartbeat_threshold;
+        let is_resubscribing = Arc::clone(&self.is_resubscribing);
+        let message_sender = self.message_sender.clone();
+        let subscribed_markets = self.subscribed_markets.clone();
+
+        // Spawn heartbeat monitoring task
+        let heartbeat_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let elapsed = {
+                    last_heartbeat.lock().unwrap().elapsed()
+                };
+                
+                if elapsed > heartbeat_threshold {
+                    let should_resubscribe = {
+                        let mut guard = is_resubscribing.lock().unwrap();
+                        if !*guard {
+                            *guard = true;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                    if should_resubscribe {
+                        if let Some(sender) = &message_sender {
+                            // Resubscribe to all markets
+                            info!("Resubscribing to {} markets", subscribed_markets.len());
+                            for market_id in &subscribed_markets {
+                                let subscription_message = format!(
+                                    "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
+                                    market_id
+                                );
+                                info!("Sending subscription: {}", subscription_message);
+                                if let Err(e) = sender.send(subscription_message).await {
+                                    error!("Failed to send resubscription message: {}", e);
+                                }
+                            }
+                        }
+                        
+                        let mut guard = is_resubscribing.lock().unwrap();
+                        *guard = false;
+                    }
+                }
+            }
+        });
+
+        // Handle incoming messages
+        while let Some(message) = receiver.recv().await {
+            self.handle_message(message).await?;
+        }
+
+        // Cancel the heartbeat task when the message handling loop ends
+        heartbeat_handle.abort();
+        
         Ok(())
     }
 
@@ -142,49 +209,19 @@ impl BetfairStreamer {
         if let Some(op) = message.get("op").and_then(Value::as_str) {
             match op {
                 "mcm" => {
-                    info!("Received message: {}", message);
                     if let Ok(market_change_message) = serde_json::from_str::<MarketChangeMessage>(&message.to_string()) {
                         info!("Parsed MarketChangeMessage: {:?}", market_change_message);
                     }
-
-                    if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
+                    else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
                         info!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
-                        self.last_heartbeat = Instant::now();
+                        *self.last_heartbeat.lock().unwrap() = Instant::now();
+                    }
+                    else {
+                        info!("Received unknown message: {}", message);
                     }
                 }
                 _ => {}
             }
-        }
-
-        // Check if we need to resubscribe
-        if self.last_heartbeat.elapsed() > self.heartbeat_threshold {
-            self.resubscribe_all_markets().await?;
-        }
-
-        Ok(())
-    }
-
-    async fn resubscribe_all_markets(&mut self) -> Result<()> {
-        if self.subscribed_markets.is_empty() {
-            return Ok(());
-        }
-
-        info!("Resubscribing to {} markets due to heartbeat timeout", self.subscribed_markets.len());
-        
-        // Create a new connection if needed
-        if !self.is_connected() {
-            self.connect_betfair_tls_stream().await?;
-        }
-
-        // Resubscribe to all markets
-        for market_id in self.subscribed_markets.clone() {
-            let subscription_message = format!(
-                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
-                market_id
-            );
-
-            self.send_message(subscription_message).await?;
-            info!("Resubscribed to market: {}", market_id);
         }
 
         Ok(())
