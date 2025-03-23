@@ -6,7 +6,7 @@ use std::fs;
 use crate::model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use tracing::info;
-use std::io::Write;
+// use std::io::Write;
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 
 #[allow(dead_code)]

@@ -8,7 +8,7 @@ use crate::model::MarketChangeMessage;
 use crate::model::HeartbeatMessage;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
@@ -23,7 +23,7 @@ pub struct BetfairStreamer {
     message_sender: Option<mpsc::Sender<String>>,
     message_receiver: Option<mpsc::Receiver<String>>,
     subscribed_markets: HashSet<String>,
-    last_heartbeat: Arc<Mutex<Instant>>,
+    last_message_ts: Arc<Mutex<Instant>>,
     heartbeat_threshold: Duration,
     is_resubscribing: Arc<Mutex<bool>>,
 }
@@ -37,7 +37,7 @@ impl BetfairStreamer {
             message_sender: None,
             message_receiver: None,
             subscribed_markets: HashSet::new(),
-            last_heartbeat: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(10))),
+            last_message_ts: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(10))),
             heartbeat_threshold: Duration::from_secs(10),
             is_resubscribing: Arc::new(Mutex::new(false)),
         }
@@ -144,7 +144,7 @@ impl BetfairStreamer {
         };
 
         // Clone necessary components for the heartbeat task
-        let last_heartbeat = Arc::clone(&self.last_heartbeat);
+        let last_heartbeat = Arc::clone(&self.last_message_ts);
         let heartbeat_threshold = self.heartbeat_threshold;
         let is_resubscribing = Arc::clone(&self.is_resubscribing);
         let message_sender = self.message_sender.clone();
@@ -192,12 +192,10 @@ impl BetfairStreamer {
             }
         });
 
-        // Handle incoming messages
         while let Some(message) = receiver.recv().await {
             self.handle_message(message).await?;
         }
 
-        // Cancel the heartbeat task when the message handling loop ends
         heartbeat_handle.abort();
         
         Ok(())
@@ -214,21 +212,16 @@ impl BetfairStreamer {
                     }
                     else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
                         info!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
-                        *self.last_heartbeat.lock().unwrap() = Instant::now();
                     }
                     else {
                         info!("Received unknown message: {}", message);
                     }
+                    *self.last_message_ts.lock().unwrap() = Instant::now();
                 }
                 _ => {}
             }
         }
 
         Ok(())
-    }
-
-    fn is_connected(&self) -> bool {
-        // For now, we'll assume we're not connected if we don't have a message sender
-        self.message_sender.is_some()
     }
 }

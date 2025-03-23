@@ -31,7 +31,7 @@ impl fmt::Display for LoginResponse {
 // {"op":"mcm","id":1,"clk":"AJctAKk5AJMu","pt":1742747423927,"mc":[{"id":"1.241200277","rc":[{"batb":[[0,4.3,943.24]],"id":58805}]}]}
 
 #[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
+#[allow(dead_code)]
 pub struct MarketChangeMessage {
     #[serde(rename = "clk")]
     pub clock: String,
@@ -44,7 +44,7 @@ pub struct MarketChangeMessage {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
+#[allow(dead_code)]
 pub struct MarketChange {
     pub id: String,
     #[serde(rename = "rc")]
@@ -52,7 +52,7 @@ pub struct MarketChange {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
+#[allow(dead_code)]
 pub struct RunnerChange {
     pub id: i64,
     #[serde(rename = "batb")]
@@ -62,16 +62,11 @@ pub struct RunnerChange {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct HeartbeatMessage {
     pub clk: String,
     pub ct: String,  // This will always be "HEARTBEAT"
     pub id: i64,
     pub op: String,  // This will always be "mcm"
     pub pt: i64,    // Timestamp
-}
-
-impl HeartbeatMessage {
-    pub fn is_heartbeat(ct: &str) -> bool {
-        ct == "HEARTBEAT"
-    }
 }

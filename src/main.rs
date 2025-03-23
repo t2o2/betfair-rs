@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     betfair_client.connect().await?;
 
-    betfair_client.subscribe_to_market("1.241200277".to_string()).await?;
+    betfair_client.subscribe_to_market("1.241300046".to_string()).await?;
 
     betfair_client.start_listening().await?;
     info!("Betfair client started listening");
