@@ -28,6 +28,8 @@ impl fmt::Display for LoginResponse {
     }
 }
 
+// {"op":"mcm","id":1,"clk":"AJctAKk5AJMu","pt":1742747423927,"mc":[{"id":"1.241200277","rc":[{"batb":[[0,4.3,943.24]],"id":58805}]}]}
+
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 pub struct MarketChangeMessage {
@@ -38,7 +40,7 @@ pub struct MarketChangeMessage {
     pub market_changes: Vec<MarketChange>,
     pub op: String,
     pub pt: i64,
-    pub ct: String
+    pub ct: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
