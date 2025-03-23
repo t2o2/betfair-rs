@@ -4,7 +4,8 @@ use tokio_native_tls::native_tls::TlsConnector;
 use tracing::info;
 use anyhow::Result;
 use tokio::sync::mpsc;
-
+use crate::model::MarketChangeMessage;
+use crate::model::HeartbeatMessage;
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
 
@@ -67,7 +68,6 @@ impl BetfairStreamer {
             }
         });
         // Spawn reader task
-        let callback = self.callback.take(); // Use take() instead of clone()
         tokio::spawn(async move {
             let mut reader = tokio::io::BufReader::new(reader); // Use tokio's BufReader
             let mut line = String::new();
@@ -79,8 +79,12 @@ impl BetfairStreamer {
                     Ok(_) => {
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
                         info!("Received message: {}", line);
-                        if let Some(ref cb) = callback {
-                            cb(line.clone());
+                        if let Ok(market_change_message) = serde_json::from_str::<MarketChangeMessage>(&line) {
+                            info!("Parsed MarketChangeMessage: {:?}", market_change_message);
+                        }
+
+                        if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&line) {
+                            info!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
                         }
                     }
                     Err(e) => {
