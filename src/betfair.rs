@@ -6,7 +6,8 @@ use std::fs;
 use crate::msg_model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use tracing::info;
-// use std::io::Write;
+use std::collections::HashMap;
+
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 
 #[allow(dead_code)]
@@ -81,6 +82,14 @@ impl BetfairClient {
         Ok(())
     }
 
+    pub fn set_orderbook_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(String, HashMap<String, crate::model::Orderbook>) + Send + Sync + 'static,
+    {
+        let streamer = self.streamer.as_mut().unwrap();
+        streamer.set_orderbook_callback(callback);
+    }
+
     pub async fn start_listening(&mut self) -> Result<()> {
         let streamer = self.streamer.as_mut().unwrap();
         streamer.start().await?;
@@ -89,15 +98,6 @@ impl BetfairClient {
 
     fn callback(message: String) {
         info!("callback message: {}", message);
-        // let mut file = std::fs::OpenOptions::new()
-        //     .create(true)
-        //     .append(true)
-        //     .open("betfair_messages.txt")
-        //     .unwrap();
-        
-        // let pretty_json = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&message).unwrap()).unwrap();
-        // writeln!(file, "{}\n", pretty_json).unwrap();
-        // drop(file);
         let json_data: serde_json::Value = serde_json::from_str(&message).unwrap();
         let op = json_data["op"].as_str();
         if op == Some("mcm") {

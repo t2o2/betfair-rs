@@ -6,7 +6,8 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 use crate::msg_model::MarketChangeMessage;
 use crate::msg_model::HeartbeatMessage;
-use std::collections::HashSet;
+use crate::model::Orderbook;
+use std::collections::{HashSet, HashMap};
 use std::time::{Duration, Instant};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -15,17 +16,20 @@ const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
 
 type MessageCallback = Box<dyn Fn(String) + Send + 'static>;
+type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
 
 pub struct BetfairStreamer {
     app_key: String,
     ssoid: String,
     callback: Option<MessageCallback>,
+    orderbook_callback: Option<OrderbookCallback>,
     message_sender: Option<mpsc::Sender<String>>,
     message_receiver: Option<mpsc::Receiver<String>>,
     subscribed_markets: HashSet<String>,
     last_message_ts: Arc<Mutex<Instant>>,
     heartbeat_threshold: Duration,
     is_resubscribing: Arc<Mutex<bool>>,
+    orderbooks: HashMap<String, HashMap<String, Orderbook>>,
 }
 
 impl BetfairStreamer {
@@ -34,12 +38,14 @@ impl BetfairStreamer {
             app_key, 
             ssoid, 
             callback: None,
+            orderbook_callback: None,
             message_sender: None,
             message_receiver: None,
             subscribed_markets: HashSet::new(),
             last_message_ts: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(10))),
             heartbeat_threshold: Duration::from_secs(10),
             is_resubscribing: Arc::new(Mutex::new(false)),
+            orderbooks: HashMap::new(),
         }
     }
 
@@ -48,6 +54,13 @@ impl BetfairStreamer {
         F: Fn(String) + Send + 'static,
     {
         self.callback = Some(Box::new(callback));
+    }
+
+    pub fn set_orderbook_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+    {
+        self.orderbook_callback = Some(Arc::new(callback));
     }
 
     pub async fn connect_betfair_tls_stream(&mut self) -> Result<()> {
@@ -209,10 +222,11 @@ impl BetfairStreamer {
             match op {
                 "mcm" => {
                     if let Ok(market_change_message) = serde_json::from_str::<MarketChangeMessage>(&message.to_string()) {
-                        info!("Parsed MarketChangeMessage: {:?}", market_change_message);
+                        debug!("Parsed MarketChangeMessage: {:?}", &market_change_message);
+                        self.parse_market_change_message(market_change_message);
                     }
                     else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
-                        info!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
+                        debug!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
                     }
                     else {
                         info!("Received unknown message: {}", message);
@@ -224,5 +238,51 @@ impl BetfairStreamer {
         }
 
         Ok(())
+    }
+
+    fn parse_market_change_message(&mut self, market_change_message: MarketChangeMessage) {
+        for market_change in market_change_message.market_changes {
+            let market_id = market_change.id;
+            let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_insert_with(|| HashMap::new());
+    
+            for runner_change in market_change.runner_changes {
+                let runner_id = runner_change.id.to_string();
+                let orderbook = market_orderbooks.entry(runner_id.clone()).or_insert_with(|| Orderbook::new());
+                if let Some(batb) = runner_change.available_to_back {
+                    for level in batb {
+                        if level.len() >= 3 {
+                            let level_index = level[0] as usize;
+                            let price = level[1];
+                            let size = level[2];
+                            orderbook.add_bid(level_index, price, size);
+                        }
+                    }
+                }
+        
+                if let Some(batl) = runner_change.available_to_lay {
+                    for level in batl {
+                        if level.len() >= 3 {
+                            let level_index = level[0] as usize;
+                            let price = level[1];
+                            let size = level[2];
+                            orderbook.add_ask(level_index, price, size);
+                        }
+                    }
+                }
+                orderbook.set_ts(market_change_message.pt);
+                debug!("Orderbook for runner {}:", runner_id);
+                debug!("\n{}", orderbook.pretty_print());
+
+            }
+
+            if let Some(callback) = &self.orderbook_callback {
+                let market_id_clone = market_id.clone();
+                let orderbooks_clone = market_orderbooks.clone();
+                let callback_clone = callback.clone();
+                tokio::spawn(async move {
+                    callback_clone(market_id_clone, orderbooks_clone);
+                });
+            }
+        }
     }
 }
