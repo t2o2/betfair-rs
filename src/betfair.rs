@@ -69,9 +69,14 @@ impl BetfairClient {
         self.session_token.clone()
     }
 
-    pub async fn subscribe_to_market(&mut self, market_id: String) -> Result<()> {
+    pub async fn subscribe_to_markets(&mut self, market_ids: Vec<String>, levels: usize) -> Result<()> {
+        if levels < 1 || levels > 10 {
+            return Err(anyhow::anyhow!("Levels must be between 1 and 10, got {}", levels));
+        }
         let streamer = self.streamer.as_mut().unwrap();
-        streamer.subscribe(market_id).await?;
+        for market_id in market_ids {
+            streamer.subscribe(market_id, levels).await?;
+        }
         Ok(())
     }
 

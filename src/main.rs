@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     betfair_client.set_orderbook_callback(orderbook_callback);
 
     betfair_client.connect().await?;
-    betfair_client.subscribe_to_market("1.241543084".to_string()).await?;
+    betfair_client.subscribe_to_markets(vec!["1.241542802".to_string()], 10).await?;
     betfair_client.start_listening().await?;
     info!("Betfair client started listening");
 

@@ -25,7 +25,7 @@ pub struct BetfairStreamer {
     orderbook_callback: Option<OrderbookCallback>,
     message_sender: Option<mpsc::Sender<String>>,
     message_receiver: Option<mpsc::Receiver<String>>,
-    subscribed_markets: HashSet<String>,
+    subscribed_markets: HashSet<(String, usize)>,
     last_message_ts: Arc<Mutex<Instant>>,
     heartbeat_threshold: Duration,
     is_resubscribing: Arc<Mutex<bool>>,
@@ -138,19 +138,19 @@ impl BetfairStreamer {
         }
     }
 
-    fn create_subscription_message(market_id: &str) -> String {
+    fn create_subscription_message(market_id: &str, levels: usize) -> String {
         format!(
-            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": 3 }}}}\r\n",
-            market_id
+            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {}}}}}\r\n",
+            market_id, levels
         )
     }
 
-    pub async fn subscribe(&mut self, market_id: String) -> Result<()> {
-        let sub_msg = Self::create_subscription_message(&market_id);
+    pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
+        let sub_msg = Self::create_subscription_message(&market_id, levels);
         info!("Sending subscription: {}", sub_msg);
         
         self.send_message(sub_msg).await?;
-        self.subscribed_markets.insert(market_id);
+        self.subscribed_markets.insert((market_id, levels));
         Ok(())
     }
 
@@ -190,8 +190,8 @@ impl BetfairStreamer {
                         if let Some(sender) = &message_sender {
                             // Resubscribe to all markets
                             info!("Resubscribing to {} markets", subscribed_markets.len());
-                            for market_id in &subscribed_markets {
-                                let subscription_message = BetfairStreamer::create_subscription_message(market_id);
+                            for (market_id, levels) in &subscribed_markets {
+                                let subscription_message = BetfairStreamer::create_subscription_message(market_id, *levels);
                                 info!("Sending subscription: {}", subscription_message);
                                 if let Err(e) = sender.send(subscription_message).await {
                                     error!("Failed to send resubscription message: {}", e);
