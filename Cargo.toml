@@ -2,6 +2,10 @@
 name = "betfair-rs"
 version = "0.1.0"
 edition = "2021"
+description = "Betfair API client for Rust"
+license = "MIT"
+repository = "https://github.com/t2o2/betfair-rs"
+keywords = ["betfair", "betting", "trading"]
 
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
