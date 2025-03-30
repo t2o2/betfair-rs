@@ -1,5 +1,5 @@
 [package]
-name = "betfair_trader"
+name = "betfair-rs"
 version = "0.1.0"
 edition = "2021"
 
