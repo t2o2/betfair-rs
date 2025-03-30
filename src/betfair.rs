@@ -1,12 +1,13 @@
-use reqwest::header::HeaderMap;
 use anyhow::{Ok, Result};
+use reqwest::header::HeaderMap;
 use reqwest::Client;
-use crate::config::Config;
 use std::fs;
+use std::collections::HashMap;
+use tracing::info;
+use crate::config::Config;
 use crate::msg_model::LoginResponse;
 use crate::streamer::BetfairStreamer;
-use tracing::info;
-use std::collections::HashMap;
+use crate::orderbook::Orderbook;
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 
@@ -89,7 +90,7 @@ impl BetfairClient {
 
     pub fn set_orderbook_callback<F>(&mut self, callback: F)
     where
-        F: Fn(String, HashMap<String, crate::model::Orderbook>) + Send + Sync + 'static,
+        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
     {
         let streamer = self.streamer.as_mut().unwrap();
         streamer.set_orderbook_callback(callback);

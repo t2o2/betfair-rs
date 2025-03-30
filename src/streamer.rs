@@ -6,7 +6,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 use crate::msg_model::MarketChangeMessage;
 use crate::msg_model::HeartbeatMessage;
-use crate::model::Orderbook;
+use crate::orderbook::Orderbook;
 use std::collections::{HashSet, HashMap};
 use std::time::{Duration, Instant};
 use serde_json::Value;

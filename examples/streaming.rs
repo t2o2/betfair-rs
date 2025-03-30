@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 use std::collections::HashMap;
 use std::error::Error;
-use betfair_rs::{config, betfair, model};
+use betfair_rs::{config, betfair, orderbook};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 } 
 
-fn orderbook_callback(market_id: String, orderbooks: HashMap<String, model::Orderbook>) {
+fn orderbook_callback(market_id: String, orderbooks: HashMap<String, orderbook::Orderbook>) {
     info!("\n=== Orderbook Update ===");
     info!("Market ID: {}", market_id);
     for (runner_id, orderbook) in orderbooks {
