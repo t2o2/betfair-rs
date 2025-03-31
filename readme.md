@@ -1,5 +1,7 @@
 # Betfair in Rust
 
+[![Unit Tests](https://github.com/chuanbai/betfair-rs/actions/workflows/unit_tests.yml/badge.svg)](https://github.com/chuanbai/betfair-rs/actions/workflows/unit_tests.yml)
+
 The goal of the project is to allow user to trade with betfair with the benefit of the speed of rust and a stable simple interface to trade.
 
 ## Setup
