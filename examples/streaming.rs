@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     client.connect().await?;
     info!("Connected to Betfair streaming service");
 
-    let market_ids = vec!["1.241529489".to_string()];
+    let market_ids = vec!["1.240634817".to_string()];
     client.subscribe_to_markets(market_ids.clone(), 3).await?;
     info!("Subscribed to markets: {:?}", market_ids);
 
