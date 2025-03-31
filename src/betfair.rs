@@ -8,8 +8,10 @@ use crate::config::Config;
 use crate::msg_model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use crate::orderbook::Orderbook;
+use crate::order::{Order, PlaceOrdersRequest, PlaceOrdersResponse, JsonRpcResponse, JsonRpcRequest};
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
+const PLACE_ORDERS_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
 
 #[allow(dead_code)]
 pub struct BetfairClient {
@@ -114,5 +116,41 @@ impl BetfairClient {
         }
     }
 
+    pub async fn place_order(&self, order: Order) -> Result<PlaceOrdersResponse> {
+        let session_token = self.session_token.as_ref().ok_or_else(|| anyhow::anyhow!("Not logged in"))?;
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Application", self.config.betfair.api_key.parse()?);
+        headers.insert("X-Authentication", session_token.parse()?);
+        headers.insert("Content-Type", "application/json".parse()?);
 
+        let request = PlaceOrdersRequest {
+            market_id: order.market_id.clone(),
+            instructions: vec![order.to_place_instruction()],
+        };
+
+        let jsonrpc_request = vec![JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "SportsAPING/v1.0/placeOrders".to_string(),
+            params: request,
+            id: 1,
+        }];
+
+        info!("Place order request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
+
+        let mut response = self.client
+            .post(PLACE_ORDERS_URL)
+            .headers(headers)
+            .json(&jsonrpc_request)
+            .send()?;
+
+        info!("Place order response status: {}", response.status());
+        
+        let response_text = response.text()?;
+        info!("Place order response body: {}", response_text);
+
+        let raw_response: Vec<JsonRpcResponse<PlaceOrdersResponse>> = serde_json::from_str(&response_text)?;
+        let response = raw_response[0].result.to_owned();
+        Ok(response)
+    }
 }

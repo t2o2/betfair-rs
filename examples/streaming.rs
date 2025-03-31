@@ -13,20 +13,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Betfair Trading Streamer Starting...");
 
     let config = config::Config::new()?;
-    let mut betfair_client = betfair::BetfairClient::new(config);
-    betfair_client.login().await?;
-    let token = betfair_client.get_session_token().await.unwrap();
+    let mut client = betfair::BetfairClient::new(config);
+    client.login().await?;
+    let token = client.get_session_token().await.unwrap();
     info!("Betfair session token: {}", token);
 
-    betfair_client.set_orderbook_callback(orderbook_callback);
+    client.set_orderbook_callback(orderbook_callback);
 
-    betfair_client.connect().await?;
-    betfair_client.subscribe_to_markets(vec!["1.241529489".to_string()], 3).await?;
-    betfair_client.start_listening().await?;
-    info!("Betfair client started listening");
+    client.connect().await?;
+    info!("Connected to Betfair streaming service");
+
+    let market_ids = vec!["1.241529489".to_string()];
+    client.subscribe_to_markets(market_ids.clone(), 3).await?;
+    info!("Subscribed to markets: {:?}", market_ids);
+
+    client.start_listening().await?;
+    info!("Started listening for market updates");
 
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
-    info!("Betfair market subscribed");
+    info!("Streaming session completed");
     Ok(())
 } 
 
