@@ -14,9 +14,11 @@ use crate::order::{
     ListCurrentOrdersRequest, ListCurrentOrdersResponse, ListClearedOrdersRequest, 
     ListClearedOrdersResponse
 };
+use crate::account::{AccountFundsResponse, GetAccountFundsRequest, GetAccountFundsResponse};
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
-const PLACE_ORDERS_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
+const BETTING_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
+const ACCOUNT_URL: &str = "https://api.betfair.com/exchange/account/json-rpc/v1";
 
 #[allow(dead_code)]
 pub struct BetfairClient {
@@ -144,7 +146,7 @@ impl BetfairClient {
         info!("Place order request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
 
         let mut response = self.client
-            .post(PLACE_ORDERS_URL)
+            .post(BETTING_URL)
             .headers(headers)
             .json(&jsonrpc_request)
             .send()?;
@@ -182,7 +184,7 @@ impl BetfairClient {
         info!("Cancel order request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
 
         let mut response = self.client
-            .post(PLACE_ORDERS_URL)
+            .post(BETTING_URL)
             .headers(headers)
             .json(&jsonrpc_request)
             .send()?;
@@ -279,7 +281,7 @@ impl BetfairClient {
         info!("List current orders request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
 
         let mut response = self.client
-            .post(PLACE_ORDERS_URL)
+            .post(BETTING_URL)
             .headers(headers)
             .json(&jsonrpc_request)
             .send()?;
@@ -327,7 +329,7 @@ impl BetfairClient {
         info!("List cleared orders request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
 
         let mut response = self.client
-            .post(PLACE_ORDERS_URL)
+            .post(BETTING_URL)
             .headers(headers)
             .json(&jsonrpc_request)
             .send()?;
@@ -340,5 +342,51 @@ impl BetfairClient {
         let raw_response: Vec<JsonRpcResponse<ListClearedOrdersResponse>> = serde_json::from_str(&response_text)?;
         let response = raw_response[0].result.to_owned();
         Ok(response)
+    }
+
+    pub async fn get_account_funds(&self) -> Result<GetAccountFundsResponse> {
+        let session_token = self.session_token.as_ref().ok_or_else(|| anyhow::anyhow!("Not logged in"))?;
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Application", self.config.betfair.api_key.parse()?);
+        headers.insert("X-Authentication", session_token.parse()?);
+        headers.insert("Content-Type", "application/json".parse()?);
+
+        let request = GetAccountFundsRequest {
+            wallet: None,
+        };
+
+        let jsonrpc_request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "AccountAPING/v1.0/getAccountFunds".to_string(),
+            params: request,
+            id: 1,
+        };
+
+        info!("Get account funds request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
+
+        let mut response = self.client
+            .post(ACCOUNT_URL)
+            .headers(headers)
+            .json(&jsonrpc_request)
+            .send()?;
+
+        info!("Get account funds response status: {}", response.status());
+        
+        let response_text = response.text()?;
+        info!("Get account funds response body: {}", response_text);
+
+        let raw_response: JsonRpcResponse<AccountFundsResponse> = serde_json::from_str(&response_text)?;
+        let response = raw_response.result.to_owned();
+        
+        Ok(GetAccountFundsResponse {
+            available_to_bet_balance: response.available_to_bet_balance,
+            exposure: response.exposure,
+            retained_commission: response.retained_commission,
+            exposure_limit: response.exposure_limit,
+            discount_rate: response.discount_rate,
+            points_balance: response.points_balance,
+            wallet: response.wallet,
+        })
     }
 }
