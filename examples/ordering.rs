@@ -23,9 +23,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let price = 10.0;
     let size = 1.0;
 
-    let order = betfair_rs::order::Order::new(market_id, runner_id, side, price, size);
+    let order = betfair_rs::order::Order::new(market_id.clone(), runner_id, side, price, size);
     let order_response = client.place_order(order).await?;
     info!("Order response: {:?}", order_response);
+
+    if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
+        info!("Placed order with bet ID: {}", bet_id);
+        
+        info!("Waiting 5 seconds before canceling order");
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        
+        let cancel_response = client.cancel_order(market_id, bet_id).await?;
+        info!("Cancel order response: {:?}", cancel_response);
+    } else {
+        info!("No bet ID in order response, order may have failed");
+    }
 
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     info!("Betfair market subscribed");

@@ -99,6 +99,39 @@ pub struct InstructionReport {
     pub order_status: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CancelOrdersRequest {
+    #[serde(rename = "marketId")]
+    pub market_id: String,
+    pub instructions: Vec<CancelInstruction>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CancelInstruction {
+    #[serde(rename = "betId")]
+    pub bet_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CancelOrdersResponse {
+    pub status: String,
+    #[serde(rename = "marketId")]
+    pub market_id: String,
+    #[serde(rename = "instructionReports")]
+    pub instruction_reports: Vec<CancelInstructionReport>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CancelInstructionReport {
+    pub status: String,
+    #[serde(rename = "betId")]
+    pub bet_id: Option<String>,
+    #[serde(rename = "cancelledDate")]
+    pub cancelled_date: Option<String>,
+    #[serde(rename = "orderStatus")]
+    pub order_status: Option<String>,
+}
+
 impl Order {
     pub fn new(market_id: String, selection_id: u64, side: OrderSide, price: f64, size: f64) -> Self {
         Self {
