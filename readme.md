@@ -58,3 +58,34 @@ The streaming implementation includes:
 
 For a complete example, see `examples/streaming.rs`.
 
+## Order Placement and Cancellation
+
+The library provides functionality to place and cancel orders on Betfair. Here's how to use it:
+
+```rust
+use betfair_rs::{config, betfair, order::OrderSide};
+
+// Initialize the client
+let config = config::Config::new()?;
+let mut betfair_client = betfair::BetfairClient::new(config);
+betfair_client.login().await?;
+
+// Place a back order
+let market_id = "1.240634817".to_string();
+let runner_id = 39674645;
+let side = OrderSide::Back;
+let price = 10.0;
+let size = 1.0;
+
+let order = betfair_rs::order::Order::new(market_id.clone(), runner_id, side, price, size);
+let order_response = betfair_client.place_order(order).await?;
+
+// Cancel the order if it was placed successfully
+if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
+    let cancel_response = betfair_client.cancel_order(market_id, bet_id).await?;
+    println!("Order canceled: {:?}", cancel_response);
+}
+```
+
+For a complete example of order placement and cancellation, see `examples/ordering.rs`.
+

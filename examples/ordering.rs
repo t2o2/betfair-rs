@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_max_level(tracing::Level::INFO)
         .init();
     
-    info!("Betfair Trading Streamer Starting...");
+    info!("Betfair Trading Ordering Starting...");
 
     let config = config::Config::new()?;
     let mut client = betfair::BetfairClient::new(config);
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Placed order with bet ID: {}", bet_id);
         
         info!("Waiting 5 seconds before canceling order");
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         
         let cancel_response = client.cancel_order(market_id, bet_id).await?;
         info!("Cancel order response: {:?}", cancel_response);
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("No bet ID in order response, order may have failed");
     }
 
-    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
-    info!("Betfair market subscribed");
+    info!("Betfair Trading Ordering Completed");
+
     Ok(())
 } 
