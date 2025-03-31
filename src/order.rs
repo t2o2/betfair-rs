@@ -132,6 +132,182 @@ pub struct CancelInstructionReport {
     pub order_status: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OrderStatusResponse {
+    pub bet_id: String,
+    pub market_id: String,
+    pub selection_id: u64,
+    pub side: OrderSide,
+    pub order_status: String,
+    pub placed_date: Option<String>,
+    pub matched_date: Option<String>,
+    pub average_price_matched: Option<f64>,
+    pub size_matched: Option<f64>,
+    pub size_remaining: Option<f64>,
+    pub size_lapsed: Option<f64>,
+    pub size_cancelled: Option<f64>,
+    pub size_voided: Option<f64>,
+    pub price_requested: Option<f64>,
+    pub price_reduced: Option<bool>,
+    pub persistence_type: Option<PersistenceType>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListCurrentOrdersRequest {
+    #[serde(rename = "betIds")]
+    pub bet_ids: Option<Vec<String>>,
+    #[serde(rename = "marketIds")]
+    pub market_ids: Option<Vec<String>>,
+    #[serde(rename = "orderProjection")]
+    pub order_projection: Option<String>,
+    #[serde(rename = "placedDateRange")]
+    pub placed_date_range: Option<TimeRange>,
+    #[serde(rename = "dateRange")]
+    pub date_range: Option<TimeRange>,
+    #[serde(rename = "orderBy")]
+    pub order_by: Option<String>,
+    #[serde(rename = "sortDir")]
+    pub sort_dir: Option<String>,
+    #[serde(rename = "fromRecord")]
+    pub from_record: Option<i32>,
+    #[serde(rename = "recordCount")]
+    pub record_count: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimeRange {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListCurrentOrdersResponse {
+    #[serde(rename = "currentOrders")]
+    pub orders: Vec<CurrentOrderSummary>,
+    #[serde(rename = "moreAvailable")]
+    pub more_available: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CurrentOrderSummary {
+    #[serde(rename = "betId")]
+    pub bet_id: String,
+    #[serde(rename = "marketId")]
+    pub market_id: String,
+    #[serde(rename = "selectionId")]
+    pub selection_id: u64,
+    pub handicap: f64,
+    #[serde(rename = "priceSize")]
+    pub price_size: PriceSize,
+    #[serde(rename = "bspLiability")]
+    pub bsp_liability: f64,
+    pub side: OrderSide,
+    pub status: String,
+    #[serde(rename = "persistenceType")]
+    pub persistence_type: PersistenceType,
+    #[serde(rename = "orderType")]
+    pub order_type: OrderType,
+    #[serde(rename = "placedDate")]
+    pub placed_date: String,
+    #[serde(rename = "averagePriceMatched")]
+    pub average_price_matched: f64,
+    #[serde(rename = "sizeMatched")]
+    pub size_matched: f64,
+    #[serde(rename = "sizeRemaining")]
+    pub size_remaining: f64,
+    #[serde(rename = "sizeLapsed")]
+    pub size_lapsed: f64,
+    #[serde(rename = "sizeCancelled")]
+    pub size_cancelled: f64,
+    #[serde(rename = "sizeVoided")]
+    pub size_voided: f64,
+    #[serde(rename = "regulatorCode")]
+    pub regulator_code: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PriceSize {
+    pub price: f64,
+    pub size: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListClearedOrdersRequest {
+    #[serde(rename = "betStatus")]
+    pub bet_status: String,
+    #[serde(rename = "eventTypeIds")]
+    pub event_type_ids: Option<Vec<String>>,
+    #[serde(rename = "eventIds")]
+    pub event_ids: Option<Vec<String>>,
+    #[serde(rename = "marketIds")]
+    pub market_ids: Option<Vec<String>>,
+    #[serde(rename = "runnerIds")]
+    pub runner_ids: Option<Vec<u64>>,
+    #[serde(rename = "betIds")]
+    pub bet_ids: Option<Vec<String>>,
+    #[serde(rename = "side")]
+    pub side: Option<OrderSide>,
+    #[serde(rename = "settledDateRange")]
+    pub settled_date_range: Option<TimeRange>,
+    #[serde(rename = "groupBy")]
+    pub group_by: Option<String>,
+    #[serde(rename = "includeItemDescription")]
+    pub include_item_description: Option<bool>,
+    #[serde(rename = "fromRecord")]
+    pub from_record: Option<i32>,
+    #[serde(rename = "recordCount")]
+    pub record_count: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListClearedOrdersResponse {
+    #[serde(rename = "clearedOrders")]
+    pub cleared_orders: Vec<ClearedOrderSummary>,
+    #[serde(rename = "moreAvailable")]
+    pub more_available: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ClearedOrderSummary {
+    #[serde(rename = "eventTypeId")]
+    pub event_type_id: Option<String>,
+    #[serde(rename = "eventId")]
+    pub event_id: Option<String>,
+    #[serde(rename = "marketId")]
+    pub market_id: String,
+    #[serde(rename = "selectionId")]
+    pub selection_id: u64,
+    pub side: OrderSide,
+    #[serde(rename = "betId")]
+    pub bet_id: String,
+    #[serde(rename = "placedDate")]
+    pub placed_date: String,
+    #[serde(rename = "settledDate")]
+    pub settled_date: String,
+    #[serde(rename = "betStatus")]
+    pub bet_status: String,
+    #[serde(rename = "betOutcome")]
+    pub bet_outcome: Option<String>,
+    #[serde(rename = "marketName")]
+    pub market_name: Option<String>,
+    #[serde(rename = "runnerName")]
+    pub runner_name: Option<String>,
+    #[serde(rename = "profitAndLoss")]
+    pub profit_and_loss: f64,
+    #[serde(rename = "priceRequested")]
+    pub price_requested: Option<f64>,
+    #[serde(rename = "priceMatched")]
+    pub price_matched: Option<f64>,
+    #[serde(rename = "sizeSettled")]
+    pub size_settled: Option<f64>,
+    #[serde(rename = "sizeCancelled")]
+    pub size_cancelled: Option<f64>,
+    #[serde(rename = "sizeVoided")]
+    pub size_voided: Option<f64>,
+    #[serde(rename = "sizeLapsed")]
+    pub size_lapsed: Option<f64>,
+}
+
 impl Order {
     pub fn new(market_id: String, selection_id: u64, side: OrderSide, price: f64, size: f64) -> Self {
         Self {

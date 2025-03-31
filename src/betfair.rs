@@ -8,7 +8,12 @@ use crate::config::Config;
 use crate::msg_model::LoginResponse;
 use crate::streamer::BetfairStreamer;
 use crate::orderbook::Orderbook;
-use crate::order::{Order, PlaceOrdersRequest, PlaceOrdersResponse, JsonRpcResponse, JsonRpcRequest, CancelOrdersRequest, CancelOrdersResponse, CancelInstruction};
+use crate::order::{
+    Order, PlaceOrdersRequest, PlaceOrdersResponse, JsonRpcResponse, JsonRpcRequest, 
+    CancelOrdersRequest, CancelOrdersResponse, CancelInstruction, OrderStatusResponse,
+    ListCurrentOrdersRequest, ListCurrentOrdersResponse, ListClearedOrdersRequest, 
+    ListClearedOrdersResponse, CurrentOrderSummary, ClearedOrderSummary
+};
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
 const PLACE_ORDERS_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
@@ -188,6 +193,151 @@ impl BetfairClient {
         info!("Cancel order response body: {}", response_text);
 
         let raw_response: Vec<JsonRpcResponse<CancelOrdersResponse>> = serde_json::from_str(&response_text)?;
+        let response = raw_response[0].result.to_owned();
+        Ok(response)
+    }
+
+    pub async fn get_order_status(&self, bet_id: String) -> Result<Option<OrderStatusResponse>> {
+        // First try to find the order in current orders
+        let current_orders = self.list_current_orders(Some(vec![bet_id.clone()]), None).await?;
+        
+        if let Some(order) = current_orders.orders.first() {
+            return Ok(Some(OrderStatusResponse {
+                bet_id: order.bet_id.clone(),
+                market_id: order.market_id.clone(),
+                selection_id: order.selection_id,
+                side: order.side.clone(),
+                order_status: order.status.clone(),
+                placed_date: Some(order.placed_date.clone()),
+                matched_date: None,
+                average_price_matched: Some(order.average_price_matched),
+                size_matched: Some(order.size_matched),
+                size_remaining: Some(order.size_remaining),
+                size_lapsed: Some(order.size_lapsed),
+                size_cancelled: Some(order.size_cancelled),
+                size_voided: Some(order.size_voided),
+                price_requested: Some(order.price_size.price),
+                price_reduced: None,
+                persistence_type: Some(order.persistence_type.clone()),
+            }));
+        }
+
+        // If not found in current orders, try cleared orders
+        let cleared_orders = self.list_cleared_orders(Some(vec![bet_id.clone()])).await?;
+        
+        if let Some(order) = cleared_orders.cleared_orders.first() {
+            return Ok(Some(OrderStatusResponse {
+                bet_id: order.bet_id.clone(),
+                market_id: order.market_id.clone(),
+                selection_id: order.selection_id,
+                side: order.side.clone(),
+                order_status: order.bet_status.clone(),
+                placed_date: Some(order.placed_date.clone()),
+                matched_date: Some(order.settled_date.clone()),
+                average_price_matched: order.price_matched,
+                size_matched: order.size_settled,
+                size_remaining: None,
+                size_lapsed: order.size_lapsed,
+                size_cancelled: order.size_cancelled,
+                size_voided: order.size_voided,
+                price_requested: order.price_requested,
+                price_reduced: None,
+                persistence_type: None,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn list_current_orders(&self, bet_ids: Option<Vec<String>>, market_ids: Option<Vec<String>>) -> Result<ListCurrentOrdersResponse> {
+        let session_token = self.session_token.as_ref().ok_or_else(|| anyhow::anyhow!("Not logged in"))?;
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Application", self.config.betfair.api_key.parse()?);
+        headers.insert("X-Authentication", session_token.parse()?);
+        headers.insert("Content-Type", "application/json".parse()?);
+
+        let request = ListCurrentOrdersRequest {
+            bet_ids,
+            market_ids,
+            order_projection: None,
+            placed_date_range: None,
+            date_range: None,
+            order_by: None,
+            sort_dir: None,
+            from_record: None,
+            record_count: None,
+        };
+
+        let jsonrpc_request = vec![JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "SportsAPING/v1.0/listCurrentOrders".to_string(),
+            params: request,
+            id: 1,
+        }];
+
+        info!("List current orders request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
+
+        let mut response = self.client
+            .post(PLACE_ORDERS_URL)
+            .headers(headers)
+            .json(&jsonrpc_request)
+            .send()?;
+
+        info!("List current orders response status: {}", response.status());
+        
+        let response_text = response.text()?;
+        info!("List current orders response body: {}", response_text);
+
+        let raw_response: Vec<JsonRpcResponse<ListCurrentOrdersResponse>> = serde_json::from_str(&response_text)?;
+        let response = raw_response[0].result.to_owned();
+        Ok(response)
+    }
+
+    async fn list_cleared_orders(&self, bet_ids: Option<Vec<String>>) -> Result<ListClearedOrdersResponse> {
+        let session_token = self.session_token.as_ref().ok_or_else(|| anyhow::anyhow!("Not logged in"))?;
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Application", self.config.betfair.api_key.parse()?);
+        headers.insert("X-Authentication", session_token.parse()?);
+        headers.insert("Content-Type", "application/json".parse()?);
+
+        let request = ListClearedOrdersRequest {
+            bet_status: "SETTLED".to_string(),
+            event_type_ids: None,
+            event_ids: None,
+            market_ids: None,
+            runner_ids: None,
+            bet_ids,
+            side: None,
+            settled_date_range: None,
+            group_by: None,
+            include_item_description: None,
+            from_record: None,
+            record_count: None,
+        };
+
+        let jsonrpc_request = vec![JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "SportsAPING/v1.0/listClearedOrders".to_string(),
+            params: request,
+            id: 1,
+        }];
+
+        info!("List cleared orders request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
+
+        let mut response = self.client
+            .post(PLACE_ORDERS_URL)
+            .headers(headers)
+            .json(&jsonrpc_request)
+            .send()?;
+
+        info!("List cleared orders response status: {}", response.status());
+        
+        let response_text = response.text()?;
+        info!("List cleared orders response body: {}", response_text);
+
+        let raw_response: Vec<JsonRpcResponse<ListClearedOrdersResponse>> = serde_json::from_str(&response_text)?;
         let response = raw_response[0].result.to_owned();
         Ok(response)
     }
