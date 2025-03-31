@@ -10,14 +10,14 @@ pub struct Order {
     pub handicap: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum OrderSide {
     Back,
     Lay,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum OrderType {
     Limit,
@@ -29,15 +29,26 @@ pub enum OrderType {
 pub struct LimitOrder {
     pub size: f64,
     pub price: f64,
-    #[serde(rename = "persistenceType")]
-    pub persistence_type: PersistenceType,
+    #[serde(rename = "persistenceType", skip_serializing_if = "Option::is_none")]
+    pub persistence_type: Option<PersistenceType>,
+    #[serde(rename = "timeInForce", skip_serializing_if = "Option::is_none")]
+    pub time_in_force: Option<TimeInForceType>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum PersistenceType {
     Lapse,
     Persist,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum TimeInForceType {
+    #[serde(rename = "FILL_OR_KILL")]
+    FillOrKill,
+    #[serde(rename = "GOOD_TILL_CANCEL")]
+    GoodTillCancel,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -53,8 +64,8 @@ pub struct PlaceInstruction {
     pub selection_id: u64,
     pub handicap: f64,
     pub side: OrderSide,
-    #[serde(rename = "orderType")]
-    pub order_type: OrderType,
+    #[serde(rename = "orderType", skip_serializing_if = "Option::is_none")]
+    pub order_type: Option<OrderType>,
     #[serde(rename = "limitOrder", skip_serializing_if = "Option::is_none")]
     pub limit_order: Option<LimitOrder>,
 }
@@ -309,7 +320,7 @@ pub struct ClearedOrderSummary {
 }
 
 impl Order {
-    pub fn new(market_id: String, selection_id: u64, side: OrderSide, price: f64, size: f64) -> Self {
+    pub fn new(market_id: String, selection_id: u64, side: OrderSide, price: f64, size: f64, tif: Option<TimeInForceType>) -> Self {
         Self {
             market_id,
             selection_id,
@@ -318,7 +329,8 @@ impl Order {
             limit_order: Some(LimitOrder {
                 size,
                 price,
-                persistence_type: PersistenceType::Persist,
+                persistence_type: Some(PersistenceType::Persist),
+                time_in_force: tif,
             }),
             handicap: 0.0,
         }
@@ -329,7 +341,7 @@ impl Order {
             selection_id: self.selection_id,
             handicap: self.handicap,
             side: self.side.clone(),
-            order_type: self.order_type.clone(),
+            order_type: Some(self.order_type.clone()),
             limit_order: self.limit_order.clone(),
         }
     }
