@@ -12,7 +12,7 @@ use crate::order::{
     Order, PlaceOrdersRequest, PlaceOrdersResponse, JsonRpcResponse, JsonRpcRequest, 
     CancelOrdersRequest, CancelOrdersResponse, CancelInstruction, OrderStatusResponse,
     ListCurrentOrdersRequest, ListCurrentOrdersResponse, ListClearedOrdersRequest, 
-    ListClearedOrdersResponse, CurrentOrderSummary, ClearedOrderSummary
+    ListClearedOrdersResponse
 };
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
