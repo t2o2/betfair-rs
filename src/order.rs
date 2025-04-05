@@ -280,43 +280,28 @@ pub struct ListClearedOrdersResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ClearedOrderSummary {
-    #[serde(rename = "eventTypeId")]
-    pub event_type_id: Option<String>,
-    #[serde(rename = "eventId")]
-    pub event_id: Option<String>,
-    #[serde(rename = "marketId")]
-    pub market_id: String,
-    #[serde(rename = "selectionId")]
-    pub selection_id: u64,
-    pub side: OrderSide,
     #[serde(rename = "betId")]
     pub bet_id: String,
+    #[serde(rename = "eventId")]
+    pub event_id: String,
+    #[serde(rename = "eventTypeId")]
+    pub event_type_id: String,
+    pub handicap: f64,
+    #[serde(rename = "marketId")]
+    pub market_id: String,
+    #[serde(rename = "orderType")]
+    pub order_type: OrderType,
+    #[serde(rename = "persistenceType")]
+    pub persistence_type: PersistenceType,
     #[serde(rename = "placedDate")]
     pub placed_date: String,
+    #[serde(rename = "priceRequested")]
+    pub price_requested: f64,
+    #[serde(rename = "selectionId")]
+    pub selection_id: u64,
     #[serde(rename = "settledDate")]
     pub settled_date: String,
-    #[serde(rename = "betStatus")]
-    pub bet_status: String,
-    #[serde(rename = "betOutcome")]
-    pub bet_outcome: Option<String>,
-    #[serde(rename = "marketName")]
-    pub market_name: Option<String>,
-    #[serde(rename = "runnerName")]
-    pub runner_name: Option<String>,
-    #[serde(rename = "profitAndLoss")]
-    pub profit_and_loss: f64,
-    #[serde(rename = "priceRequested")]
-    pub price_requested: Option<f64>,
-    #[serde(rename = "priceMatched")]
-    pub price_matched: Option<f64>,
-    #[serde(rename = "sizeSettled")]
-    pub size_settled: Option<f64>,
-    #[serde(rename = "sizeCancelled")]
-    pub size_cancelled: Option<f64>,
-    #[serde(rename = "sizeVoided")]
-    pub size_voided: Option<f64>,
-    #[serde(rename = "sizeLapsed")]
-    pub size_lapsed: Option<f64>,
+    pub side: OrderSide,
 }
 
 impl Order {

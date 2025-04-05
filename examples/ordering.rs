@@ -34,7 +34,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Placed persistent order with bet ID: {}", bet_id);
         
         // Check order status immediately after placing
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("Initial persistent order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
         
@@ -42,7 +43,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         
         // Check order status again
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("Persistent order status after 5 seconds:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
         
@@ -53,7 +55,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Cancel persistent order response:\n{}", serde_json::to_string_pretty(&json!(cancel_response))?);
         
         // Check final order status after cancellation
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("Final persistent order status after cancellation:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
     } else {
@@ -69,7 +72,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Placed FOK order with bet ID: {}", bet_id);
         
         // Check order status immediately after placing
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("Initial FOK order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
         
@@ -77,7 +81,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         
         // Check order status again
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("FOK order status after 5 seconds:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
         
@@ -85,7 +90,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         
         // Check final order status
-        if let Some(status) = client.get_order_status(vec![bet_id.clone()]).await? {
+        let status = client.get_order_status(vec![bet_id.clone()]).await?;
+        if !status.is_empty() {
             info!("Final FOK order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
         }
     } else {

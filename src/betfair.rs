@@ -154,7 +154,7 @@ impl BetfairClient {
         info!("API response status: {}", response.status());
         
         let response_text = response.text()?;
-        info!("API response body: {}", response_text);
+        info!("API response body: {}", serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&response_text)?)?);
 
         let raw_response: JsonRpcResponse<U> = serde_json::from_str(&response_text)?;
         Ok(raw_response.result)
@@ -258,12 +258,15 @@ impl BetfairClient {
         })
     }
 
-    pub async fn get_order_status(&self, bet_ids: Vec<String>) -> Result<Option<OrderStatusResponse>> {
-        // First try to find the order in current orders
+    pub async fn get_order_status(&self, bet_ids: Vec<String>) -> Result<HashMap<String, OrderStatusResponse>> {
+        let mut results = HashMap::new();
+        let mut remaining_bet_ids = bet_ids.clone();
+
+        // First check current orders
         let current_orders = self.list_current_orders(Some(bet_ids.clone()), None).await?;
         
-        if let Some(order) = current_orders.orders.first() {
-            return Ok(Some(OrderStatusResponse {
+        for order in current_orders.orders {
+            results.insert(order.bet_id.clone(), OrderStatusResponse {
                 bet_id: order.bet_id.clone(),
                 market_id: order.market_id.clone(),
                 selection_id: order.selection_id,
@@ -280,33 +283,37 @@ impl BetfairClient {
                 price_requested: Some(order.price_size.price),
                 price_reduced: None,
                 persistence_type: Some(order.persistence_type.clone()),
-            }));
+            });
+            // Remove found bet_id from remaining list
+            remaining_bet_ids.retain(|id| id != &order.bet_id);
         }
 
-        // If not found in current orders, try cleared orders
-        let cleared_orders = self.list_cleared_orders(Some(vec![bet_ids[0].clone()])).await?;
-        
-        if let Some(order) = cleared_orders.cleared_orders.first() {
-            return Ok(Some(OrderStatusResponse {
-                bet_id: order.bet_id.clone(),
-                market_id: order.market_id.clone(),
-                selection_id: order.selection_id,
-                side: order.side.clone(),
-                order_status: order.bet_status.clone(),
-                placed_date: Some(order.placed_date.clone()),
-                matched_date: Some(order.settled_date.clone()),
-                average_price_matched: order.price_matched,
-                size_matched: order.size_settled,
-                size_remaining: None,
-                size_lapsed: order.size_lapsed,
-                size_cancelled: order.size_cancelled,
-                size_voided: order.size_voided,
-                price_requested: order.price_requested,
-                price_reduced: None,
-                persistence_type: None,
-            }));
+        // If there are remaining bet_ids, check cleared orders
+        if !remaining_bet_ids.is_empty() {
+            let cleared_orders = self.list_cleared_orders(Some(remaining_bet_ids)).await?;
+            
+            for order in cleared_orders.cleared_orders {
+                results.insert(order.bet_id.clone(), OrderStatusResponse {
+                    bet_id: order.bet_id.clone(),
+                    market_id: order.market_id.clone(),
+                    selection_id: order.selection_id,
+                    side: order.side.clone(),
+                    order_status: "SETTLED".to_string(),
+                    placed_date: Some(order.placed_date.clone()),
+                    matched_date: Some(order.settled_date.clone()),
+                    average_price_matched: None,
+                    size_matched: None,
+                    size_remaining: None,
+                    size_lapsed: None,
+                    size_cancelled: None,
+                    size_voided: None,
+                    price_requested: Some(order.price_requested),
+                    price_reduced: None,
+                    persistence_type: Some(order.persistence_type.clone()),
+                });
+            }
         }
 
-        Ok(None)
+        Ok(results)
     }
 }
