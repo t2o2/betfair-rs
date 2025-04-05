@@ -23,9 +23,9 @@ const ACCOUNT_URL: &str = "https://api.betfair.com/exchange/account/json-rpc/v1"
 #[allow(dead_code)]
 pub struct BetfairClient {
     client: Client,
-    config: Config,
+    config: Box<Config>,
     session_token: Option<String>,
-    streamer: Option<BetfairStreamer>,
+    streamer: Option<Box<BetfairStreamer>>,
 }
 
 impl BetfairClient {
@@ -33,7 +33,7 @@ impl BetfairClient {
     pub fn new(config: Config) -> Self {
         Self {
             client: Client::new(),
-            config,
+            config: Box::new(config),
             session_token: None,
             streamer: None,
         }
@@ -68,7 +68,7 @@ impl BetfairClient {
         match response.session_token {
             Some(token) => {
                 self.session_token = Some(token);
-                self.streamer = Some(BetfairStreamer::new(self.config.betfair.api_key.clone(), self.session_token.clone().unwrap()));
+                self.streamer = Some(Box::new(BetfairStreamer::new(self.config.betfair.api_key.clone(), self.session_token.clone().unwrap())));
                 Ok(())
             }
             None => Err(anyhow::anyhow!("loginStatus: {}", response.login_status)),
@@ -131,7 +131,7 @@ impl BetfairClient {
         let session_token = self.session_token.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not logged in"))?;
         
-        let mut headers = HeaderMap::new();
+        let mut headers = HeaderMap::with_capacity(3);
         headers.insert("X-Application", self.config.betfair.api_key.parse()?);
         headers.insert("X-Authentication", session_token.parse()?);
         headers.insert("Content-Type", "application/json".parse()?);
@@ -143,7 +143,9 @@ impl BetfairClient {
             id: 1,
         };
 
-        info!("API request: {}", serde_json::to_string_pretty(&jsonrpc_request).unwrap());
+        if tracing::enabled!(tracing::Level::INFO) {
+            info!("API request: {}", serde_json::to_string_pretty(&jsonrpc_request)?);
+        }
 
         let mut response = self.client
             .post(url)
@@ -151,10 +153,15 @@ impl BetfairClient {
             .json(&jsonrpc_request)
             .send()?;
 
-        info!("API response status: {}", response.status());
+        if tracing::enabled!(tracing::Level::INFO) {
+            info!("API response status: {}", response.status());
+        }
         
         let response_text = response.text()?;
-        info!("API response body: {}", serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&response_text)?)?);
+        
+        if tracing::enabled!(tracing::Level::INFO) {
+            info!("API response body: {}", serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&response_text)?)?);
+        }
 
         let raw_response: JsonRpcResponse<U> = serde_json::from_str(&response_text)?;
         Ok(raw_response.result)
@@ -208,8 +215,8 @@ impl BetfairClient {
     }
 
     async fn list_cleared_orders(&self, bet_ids: Option<Vec<String>>) -> Result<ListClearedOrdersResponse> {
-        let statuses = vec!["LAPSED", "SETTLED", "CANCELLED", "VOIDED"];
-        let mut all_orders = Vec::new();
+        let statuses = ["LAPSED", "SETTLED", "CANCELLED", "VOIDED"];
+        let mut all_orders = Vec::with_capacity(100); // Pre-allocate with reasonable capacity
         let mut more_available = false;
 
         for status in statuses {
@@ -219,7 +226,7 @@ impl BetfairClient {
                 event_ids: None,
                 market_ids: None,
                 runner_ids: None,
-                bet_ids: bet_ids.clone(),
+                bet_ids: bet_ids.as_ref().cloned(),
                 side: None,
                 settled_date_range: None,
                 group_by: None,
@@ -259,20 +266,21 @@ impl BetfairClient {
     }
 
     pub async fn get_order_status(&self, bet_ids: Vec<String>) -> Result<HashMap<String, OrderStatusResponse>> {
-        let mut results = HashMap::new();
-        let mut remaining_bet_ids = bet_ids.clone();
+        let mut results = HashMap::with_capacity(bet_ids.len());
+        let mut remaining_bet_ids = bet_ids;
 
         // First check current orders
-        let current_orders = self.list_current_orders(Some(bet_ids.clone()), None).await?;
+        let current_orders = self.list_current_orders(Some(remaining_bet_ids.clone()), None).await?;
         
         for order in current_orders.orders {
-            results.insert(order.bet_id.clone(), OrderStatusResponse {
-                bet_id: order.bet_id.clone(),
-                market_id: order.market_id.clone(),
+            let bet_id = order.bet_id.clone();
+            results.insert(bet_id.clone(), OrderStatusResponse {
+                bet_id,
+                market_id: order.market_id,
                 selection_id: order.selection_id,
-                side: order.side.clone(),
-                order_status: order.status.clone(),
-                placed_date: Some(order.placed_date.clone()),
+                side: order.side,
+                order_status: order.status,
+                placed_date: Some(order.placed_date),
                 matched_date: None,
                 average_price_matched: Some(order.average_price_matched),
                 size_matched: Some(order.size_matched),
@@ -282,7 +290,7 @@ impl BetfairClient {
                 size_voided: Some(order.size_voided),
                 price_requested: Some(order.price_size.price),
                 price_reduced: None,
-                persistence_type: Some(order.persistence_type.clone()),
+                persistence_type: Some(order.persistence_type),
             });
             // Remove found bet_id from remaining list
             remaining_bet_ids.retain(|id| id != &order.bet_id);
@@ -293,14 +301,15 @@ impl BetfairClient {
             let cleared_orders = self.list_cleared_orders(Some(remaining_bet_ids)).await?;
             
             for order in cleared_orders.cleared_orders {
-                results.insert(order.bet_id.clone(), OrderStatusResponse {
-                    bet_id: order.bet_id.clone(),
-                    market_id: order.market_id.clone(),
+                let bet_id = order.bet_id.clone();
+                results.insert(bet_id.clone(), OrderStatusResponse {
+                    bet_id,
+                    market_id: order.market_id,
                     selection_id: order.selection_id,
-                    side: order.side.clone(),
+                    side: order.side,
                     order_status: "SETTLED".to_string(),
-                    placed_date: Some(order.placed_date.clone()),
-                    matched_date: Some(order.settled_date.clone()),
+                    placed_date: Some(order.placed_date),
+                    matched_date: Some(order.settled_date),
                     average_price_matched: None,
                     size_matched: None,
                     size_remaining: None,
@@ -309,7 +318,7 @@ impl BetfairClient {
                     size_voided: None,
                     price_requested: Some(order.price_requested),
                     price_reduced: None,
-                    persistence_type: Some(order.persistence_type.clone()),
+                    persistence_type: Some(order.persistence_type),
                 });
             }
         }
