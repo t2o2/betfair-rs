@@ -23,7 +23,9 @@ pfx_path = "[absolute path]"
 pfx_password = ""
 ```
 
-## Streaming Capability
+## Features
+
+### Streaming Capabilities
 
 The library provides real-time market data streaming through Betfair's streaming API. Here's how to use it:
 
@@ -58,11 +60,11 @@ The streaming implementation includes:
 - Configurable orderbook depth (1-10 levels)
 - Thread-safe orderbook state management
 
-For a complete example, see `examples/streaming.rs`.
+### Order Management
 
-## Order Placement and Cancellation
+The library provides comprehensive order management capabilities:
 
-The library provides functionality to place and cancel orders on Betfair. Here's how to use it:
+#### Order Placement and Cancellation
 
 ```rust
 use betfair_rs::{config, betfair, order::OrderSide};
@@ -89,5 +91,52 @@ if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
 }
 ```
 
-For a complete example of order placement and cancellation, see `examples/ordering.rs`.
+#### Order Streaming and Updates
 
+```rust
+use betfair_rs::{config, betfair, msg_model::OrderChangeMessage};
+
+// Set up order update callback
+betfair_client.set_orderupdate_callback(|order_change: OrderChangeMessage| {
+    // Handle order updates including:
+    // - Initial order state
+    // - Order status changes
+    // - Matched/unmatched amounts
+    // - Order cancellations
+});
+```
+
+#### Order Reconciliation
+
+```rust
+// Get current status of orders
+let bet_ids = vec!["384087398733".to_string(), "384086212322".to_string()];
+let order_statuses = betfair_client.get_order_status(bet_ids).await?;
+
+// Process order statuses including:
+// - Execution status
+// - Matched/remaining amounts
+// - Price information
+```
+
+### Account Management
+
+```rust
+// Get account funds information
+let account_funds = betfair_client.get_account_funds().await?;
+
+// Access account details including:
+// - Available balance
+// - Exposure
+// - Exposure limits
+// - Discount rates
+// - Points balance
+// - Wallet information
+```
+
+For complete examples of all features, see the `examples/` directory:
+- `streaming.rs` - Market data streaming
+- `streaming_order.rs` - Order updates streaming
+- `ordering.rs` - Order placement and management
+- `reconcile.rs` - Order status reconciliation
+- `account.rs` - Account information and funds
