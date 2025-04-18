@@ -70,15 +70,14 @@ fn test_heartbeat_message_serialization() {
     let message = HeartbeatMessage {
         clk: "AJctAKk5AJMu".to_string(),
         ct: "HEARTBEAT".to_string(),
-        id: 1,
         op: "mcm".to_string(),
         pt: 1742747423927i64,
+        status: None,
     };
 
     let json = serde_json::to_value(&message).unwrap();
     assert_eq!(json["clk"], "AJctAKk5AJMu");
     assert_eq!(json["ct"], "HEARTBEAT");
-    assert_eq!(json["id"], 1);
     assert_eq!(json["op"], "mcm");
     assert_eq!(json["pt"], 1742747423927i64);
 }
@@ -88,7 +87,6 @@ fn test_heartbeat_message_deserialization() {
     let json = json!({
         "clk": "AJctAKk5AJMu",
         "ct": "HEARTBEAT",
-        "id": 1,
         "op": "mcm",
         "pt": 1742747423927i64
     });
@@ -96,7 +94,6 @@ fn test_heartbeat_message_deserialization() {
     let message: HeartbeatMessage = serde_json::from_value(json).unwrap();
     assert_eq!(message.clk, "AJctAKk5AJMu");
     assert_eq!(message.ct, "HEARTBEAT");
-    assert_eq!(message.id, 1);
     assert_eq!(message.op, "mcm");
     assert_eq!(message.pt, 1742747423927i64);
 } 
