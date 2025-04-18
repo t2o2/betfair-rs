@@ -92,7 +92,6 @@ impl BetfairClient {
 
     pub async fn connect(&mut self) -> Result<()> {
         let streamer = self.streamer.as_mut().unwrap();
-        streamer.set_callback(Self::callback);
         streamer.connect_betfair_tls_stream().await?;
         Ok(())
     }
@@ -105,22 +104,19 @@ impl BetfairClient {
         streamer.set_orderbook_callback(callback);
     }
 
+    pub fn set_orderupdate_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(crate::msg_model::OrderChangeMessage) + Send + Sync + 'static,
+    {
+        let streamer = self.streamer.as_mut().unwrap();
+        streamer.set_orderupdate_callback(callback);
+    }
+
     pub async fn start_listening(&mut self) -> Result<()> {
+        info!("Starting to listen to streams");
         let streamer = self.streamer.as_mut().unwrap();
         streamer.start().await?;
         Ok(())
-    }
-
-    fn callback(message: String) {
-        info!("callback message: {}", message);
-        let json_data: serde_json::Value = serde_json::from_str(&message).unwrap();
-        let op = json_data["op"].as_str();
-        if op == Some("mcm") {
-            let ct = json_data["ct"].as_str();
-            if ct == Some("HEARTBEAT") {
-                info!("Heartbeat received");
-            }
-        }
     }
 
     async fn make_api_request<T, U>(&self, url: &str, method: &str, params: T) -> Result<U> 
@@ -324,5 +320,13 @@ impl BetfairClient {
         }
 
         Ok(results)
+    }
+
+    pub async fn subscribe_to_orders(&mut self) -> Result<()> {
+        info!("Subscribing to orders stream");
+        let streamer = self.streamer.as_mut().unwrap();
+        let order_sub_msg = BetfairStreamer::create_order_subscription_message();
+        streamer.send_message(order_sub_msg).await?;
+        Ok(())
     }
 }

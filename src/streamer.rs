@@ -11,18 +11,19 @@ use std::collections::{HashSet, HashMap};
 use std::time::{Duration, Instant};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
+use crate::msg_model::OrderChangeMessage;
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
 
-type MessageCallback = Box<dyn Fn(String) + Send + 'static>;
 type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
+type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 pub struct BetfairStreamer {
     app_key: String,
     ssoid: String,
-    callback: Option<MessageCallback>,
     orderbook_callback: Option<OrderbookCallback>,
+    orderupdate_callback: Option<OrderUpdateCallback>,
     message_sender: Option<mpsc::Sender<String>>,
     message_receiver: Option<mpsc::Receiver<String>>,
     subscribed_markets: HashSet<(String, usize)>,
@@ -37,8 +38,8 @@ impl BetfairStreamer {
         Self { 
             app_key, 
             ssoid, 
-            callback: None,
             orderbook_callback: None,
+            orderupdate_callback: None,
             message_sender: None,
             message_receiver: None,
             subscribed_markets: HashSet::new(),
@@ -49,18 +50,18 @@ impl BetfairStreamer {
         }
     }
 
-    pub fn set_callback<F>(&mut self, callback: F)
-    where
-        F: Fn(String) + Send + 'static,
-    {
-        self.callback = Some(Box::new(callback));
-    }
-
     pub fn set_orderbook_callback<F>(&mut self, callback: F)
     where
         F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
     {
         self.orderbook_callback = Some(Arc::new(callback));
+    }
+
+    pub fn set_orderupdate_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(OrderChangeMessage) + Send + Sync + 'static,
+    {
+        self.orderupdate_callback = Some(Arc::new(callback));
     }
 
     pub async fn connect_betfair_tls_stream(&mut self) -> Result<()> {
@@ -129,7 +130,7 @@ impl BetfairStreamer {
         Ok(())
     }
 
-    async fn send_message(&self, message: String) -> Result<()> {
+    pub async fn send_message(&self, message: String) -> Result<()> {
         if let Some(sender) = &self.message_sender {
             sender.send(message).await?;
             Ok(())
@@ -138,15 +139,21 @@ impl BetfairStreamer {
         }
     }
 
-    fn create_subscription_message(market_id: &str, levels: usize) -> String {
+    fn create_market_subscription_message(market_id: &str, levels: usize) -> String {
         format!(
             "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {}}}}}\r\n",
             market_id, levels
         )
     }
 
+    pub fn create_order_subscription_message() -> String {
+        format!(
+            "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n"
+        )
+    }
+
     pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
-        let sub_msg = Self::create_subscription_message(&market_id, levels);
+        let sub_msg = Self::create_market_subscription_message(&market_id, levels);
         info!("Sending subscription: {}", sub_msg);
         
         self.send_message(sub_msg).await?;
@@ -191,7 +198,7 @@ impl BetfairStreamer {
                             // Resubscribe to all markets
                             info!("Resubscribing to {} markets", subscribed_markets.len());
                             for (market_id, levels) in &subscribed_markets {
-                                let subscription_message = BetfairStreamer::create_subscription_message(market_id, *levels);
+                                let subscription_message = BetfairStreamer::create_market_subscription_message(market_id, *levels);
                                 info!("Sending subscription: {}", subscription_message);
                                 if let Err(e) = sender.send(subscription_message).await {
                                     error!("Failed to send resubscription message: {}", e);
@@ -217,7 +224,6 @@ impl BetfairStreamer {
 
     async fn handle_message(&mut self, message: String) -> Result<()> {
         let message: Value = serde_json::from_str(&message)?;
-        
         if let Some(op) = message.get("op").and_then(Value::as_str) {
             match op {
                 "mcm" => {
@@ -230,6 +236,19 @@ impl BetfairStreamer {
                     }
                     else {
                         info!("Received unknown message: {}", message);
+                    }
+                    *self.last_message_ts.lock().unwrap() = Instant::now();
+                }
+                "ocm" => {
+                    if let Ok(order_change_message) = serde_json::from_str::<OrderChangeMessage>(&message.to_string()) {
+                        debug!("Parsed OrderChangeMessage: {:?}", &order_change_message);
+                        self.parse_order_change_message(order_change_message);
+                    }
+                    else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
+                        debug!("Parsed HeartbeatMessage: {:?}", &heartbeat_message);
+                    }
+                    else {
+                        info!("Received unknown order message: {}", message);
                     }
                     *self.last_message_ts.lock().unwrap() = Instant::now();
                 }
@@ -283,6 +302,17 @@ impl BetfairStreamer {
                     callback_clone(market_id_clone, orderbooks_clone);
                 });
             }
+        }
+    }
+
+
+    fn parse_order_change_message(&mut self, order_change_message: OrderChangeMessage) {
+        if let Some(callback) = &self.orderupdate_callback {
+            let callback_clone = callback.clone();
+            let message_clone = order_change_message.clone();
+            tokio::spawn(async move {
+                callback_clone(message_clone);
+            });
         }
     }
 }
