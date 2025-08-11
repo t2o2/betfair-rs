@@ -1,5 +1,5 @@
 use anyhow::Result;
-use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::{MarketFilter, ListMarketCatalogueRequest, common::MarketStatus, account::GetAccountFundsRequest}};
+use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::{MarketFilter, ListMarketCatalogueRequest, common::{MarketStatus, Side, OrderType, PersistenceType}, account::GetAccountFundsRequest, order::{PlaceOrdersRequest, PlaceInstruction, LimitOrder, CancelOrdersRequest, CancelInstruction, ListCurrentOrdersRequest}}};
 use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc};
 
@@ -86,6 +86,51 @@ enum Commands {
     
     /// Get account funds information
     GetAccount,
+    
+    /// Place an order on a market
+    PlaceOrder {
+        /// Market ID
+        #[arg(short, long)]
+        market: String,
+        
+        /// Selection/Runner ID
+        #[arg(short = 'r', long)]
+        runner: u64,
+        
+        /// Side (BACK or LAY)
+        #[arg(short = 's', long)]
+        side: String,
+        
+        /// Price/Odds (e.g., 2.5)
+        #[arg(short, long)]
+        price: f64,
+        
+        /// Stake amount in £
+        #[arg(short = 'a', long)]
+        amount: f64,
+        
+        /// Persistence type (LAPSE or PERSIST, default: LAPSE)
+        #[arg(long, default_value = "LAPSE")]
+        persistence: String,
+    },
+    
+    /// Cancel an order
+    CancelOrder {
+        /// Market ID
+        #[arg(short, long)]
+        market: String,
+        
+        /// Bet ID to cancel
+        #[arg(short, long)]
+        bet_id: String,
+    },
+    
+    /// List current orders
+    ListOrders {
+        /// Market ID (optional - if not provided, lists all orders)
+        #[arg(short, long)]
+        market: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -130,6 +175,15 @@ async fn main() -> Result<()> {
         }
         Commands::GetAccount => {
             get_account(&mut client).await?;
+        }
+        Commands::PlaceOrder { market, runner, side, price, amount, persistence } => {
+            place_order(&mut client, &market, runner, &side, price, amount, &persistence).await?;
+        }
+        Commands::CancelOrder { market, bet_id } => {
+            cancel_order(&mut client, &market, &bet_id).await?;
+        }
+        Commands::ListOrders { market } => {
+            list_orders(&mut client, market.as_deref()).await?;
         }
     }
     
@@ -643,6 +697,271 @@ async fn get_account(client: &mut BetfairApiClient) -> Result<()> {
         }
         Err(e) => {
             eprintln!("Error fetching account details: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn place_order(
+    client: &mut BetfairApiClient,
+    market_id: &str,
+    selection_id: u64,
+    side: &str,
+    price: f64,
+    size: f64,
+    persistence: &str,
+) -> Result<()> {
+    println!("Placing order...\n");
+    
+    // Parse side
+    let order_side = match side.to_uppercase().as_str() {
+        "BACK" => Side::Back,
+        "LAY" => Side::Lay,
+        _ => {
+            eprintln!("Error: Invalid side: {}. Must be BACK or LAY", side);
+            return Ok(());
+        }
+    };
+    
+    // Parse persistence type
+    let persistence_type = match persistence.to_uppercase().as_str() {
+        "LAPSE" => PersistenceType::Lapse,
+        "PERSIST" => PersistenceType::Persist,
+        _ => {
+            eprintln!("Error: Invalid persistence: {}. Must be LAPSE or PERSIST", persistence);
+            return Ok(());
+        }
+    };
+    
+    // Create place instruction
+    let instruction = PlaceInstruction {
+        order_type: OrderType::Limit,
+        selection_id: selection_id as i64,
+        handicap: Some(0.0),
+        side: order_side.clone(),
+        limit_order: Some(LimitOrder {
+            size,
+            price,
+            persistence_type,
+            time_in_force: None,
+            min_fill_size: None,
+            bet_target_type: None,
+            bet_target_size: None,
+        }),
+        limit_on_close_order: None,
+        market_on_close_order: None,
+        customer_order_ref: None,
+    };
+    
+    let request = PlaceOrdersRequest {
+        market_id: market_id.to_string(),
+        instructions: vec![instruction],
+        customer_ref: None,
+        market_version: None,
+        customer_strategy_ref: None,
+        async_: None,
+    };
+    
+    match client.place_orders(request).await {
+        Ok(response) => {
+            println!("Order Response:");
+            println!("{}", "-".repeat(50));
+            println!("Status: {}", response.status);
+            
+            if let Some(error_code) = &response.error_code {
+                println!("Error Code: {:?}", error_code);
+            }
+            
+            println!("Market ID: {}", response.market_id);
+            
+            if let Some(reports) = &response.instruction_reports {
+                for report in reports {
+                    println!("\nOrder Report:");
+                    println!("  Status: {:?}", report.status);
+                    
+                    if let Some(bet_id) = &report.bet_id {
+                        println!("  Bet ID: {}", bet_id);
+                        println!("\nHint: Use this Bet ID to cancel the order: cli cancel-order -m {} -b {}", market_id, bet_id);
+                    }
+                    
+                    if let Some(placed_date) = &report.placed_date {
+                        println!("  Placed: {}", placed_date);
+                    }
+                    
+                    if let Some(avg_price) = report.average_price_matched {
+                        println!("  Avg Price Matched: {:.2}", avg_price);
+                    }
+                    
+                    if let Some(size_matched) = report.size_matched {
+                        println!("  Size Matched: £{:.2}", size_matched);
+                    }
+                    
+                    if let Some(error_code) = &report.error_code {
+                        println!("  Error: {:?}", error_code);
+                    }
+                    
+                    println!("  Selection: {}", report.instruction.selection_id);
+                    println!("  Side: {:?}", report.instruction.side);
+                    if let Some(limit_order) = &report.instruction.limit_order {
+                        println!("  Price: {:.2}", limit_order.price);
+                        println!("  Size: £{:.2}", limit_order.size);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error placing order: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn cancel_order(
+    client: &mut BetfairApiClient,
+    market_id: &str,
+    bet_id: &str,
+) -> Result<()> {
+    println!("Cancelling order...\n");
+    
+    let instruction = CancelInstruction {
+        bet_id: bet_id.to_string(),
+        size_reduction: None,
+    };
+    
+    let request = CancelOrdersRequest {
+        market_id: market_id.to_string(),
+        instructions: vec![instruction],
+        customer_ref: None,
+    };
+    
+    match client.cancel_orders(request).await {
+        Ok(response) => {
+            println!("Cancel Response:");
+            println!("{}", "-".repeat(50));
+            println!("Status: {}", response.status);
+            
+            if let Some(error_code) = &response.error_code {
+                println!("Error Code: {:?}", error_code);
+            }
+            
+            println!("Market ID: {}", response.market_id);
+            
+            if let Some(reports) = &response.instruction_reports {
+                for report in reports {
+                    println!("\nCancel Report:");
+                    println!("  Status: {:?}", report.status);
+                    
+                    if let Some(size_cancelled) = report.size_cancelled {
+                        println!("  Size Cancelled: £{:.2}", size_cancelled);
+                    }
+                    
+                    if let Some(cancelled_date) = &report.cancelled_date {
+                        println!("  Cancelled: {}", cancelled_date);
+                    }
+                    
+                    if let Some(error_code) = &report.error_code {
+                        println!("  Error: {:?}", error_code);
+                    }
+                    
+                    println!("  Bet ID: {}", report.instruction.bet_id);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error cancelling order: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_orders(client: &mut BetfairApiClient, market_id: Option<&str>) -> Result<()> {
+    println!("Fetching current orders...\n");
+    
+    let request = ListCurrentOrdersRequest {
+        bet_ids: None,
+        market_ids: market_id.map(|m| vec![m.to_string()]),
+        order_projection: None,
+        customer_order_refs: None,
+        customer_strategy_refs: None,
+        date_range: None,
+        order_by: None,
+        sort_dir: None,
+        from_record: None,
+        record_count: None,
+    };
+    
+    match client.list_current_orders(request).await {
+        Ok(response) => {
+            let orders = &response.current_orders;
+                if orders.is_empty() {
+                    println!("No current orders found");
+                } else {
+                    println!("Current Orders ({} total):\n", orders.len());
+                    println!("{:<12} {:<15} {:<12} {:<6} {:<8} {:<8} {:<10} {:<10} {:<10}", 
+                        "Bet ID", "Market ID", "Selection", "Side", "Price", "Size", "Matched", "Status", "Type");
+                    println!("{}", "-".repeat(100));
+                    
+                    for order in orders {
+                        let bet_id = if order.bet_id.len() > 10 {
+                            format!("{}...", &order.bet_id[..10])
+                        } else {
+                            order.bet_id.clone()
+                        };
+                        
+                        let market_id = if order.market_id.len() > 13 {
+                            format!("{}...", &order.market_id[..13])
+                        } else {
+                            order.market_id.clone()
+                        };
+                        
+                        println!("{:<12} {:<15} {:<12} {:<6} {:<8.2} £{:<7.2} £{:<9.2} {:<10} {:<10}",
+                            bet_id,
+                            market_id,
+                            order.selection_id,
+                            format!("{:?}", order.side),
+                            order.price_size.price,
+                            order.price_size.size,
+                            order.size_matched.unwrap_or(0.0),
+                            format!("{:?}", order.status),
+                            format!("{:?}", order.order_type)
+                        );
+                        
+                        if let Some(size_matched) = order.size_matched {
+                            if size_matched > 0.0 {
+                            if let Some(avg_price) = order.average_price_matched {
+                                    println!("                  Average Price Matched: {:.2}", avg_price);
+                                }
+                            }
+                        }
+                        
+                        if let Some(size_remaining) = order.size_remaining {
+                            if size_remaining > 0.0 {
+                                println!("                  Remaining: £{:.2}", size_remaining);
+                            }
+                        }
+                        
+                        if let Some(size_cancelled) = order.size_cancelled {
+                            if size_cancelled > 0.0 {
+                                println!("                  Cancelled: £{:.2}", size_cancelled);
+                            }
+                        }
+                        
+                        {
+                            if let Ok(dt) = order.placed_date.parse::<DateTime<Utc>>() {
+                                println!("                  Placed: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
+                            }
+                        }
+                    }
+                    
+                    println!("\nHint: Use bet IDs to cancel specific orders");
+                    println!("Hint: Use: cli cancel-order -m [MARKET_ID] -b [BET_ID]");
+                }
+        }
+        Err(e) => {
+            eprintln!("Error fetching orders: {}", e);
         }
     }
     

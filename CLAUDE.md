@@ -34,6 +34,13 @@ cargo run --example betfair -- list_runners -m 1.241472080        # List runners
 cargo run --example betfair -- get_odds -m 1.241472080            # Get odds/prices for specific market
 cargo run --example betfair -- get_account                        # Get account funds and details
 
+# Ordering commands
+cargo run --example betfair -- place_order -m 1.241472080 -r 123456 -s BACK -p 2.5 -a 10  # Place a back bet
+cargo run --example betfair -- place_order -m 1.241472080 -r 123456 -s LAY -p 3.0 -a 5 --persistence PERSIST  # Place a persistent lay bet
+cargo run --example betfair -- list_orders                        # List all current orders
+cargo run --example betfair -- list_orders -m 1.241472080         # List orders for specific market
+cargo run --example betfair -- cancel_order -m 1.241472080 -b 12345678  # Cancel specific order
+
 # Alternative CLI with standard formatting
 cargo run --example cli -- list-sports
 cargo run --example cli -- list-competitions -s 1
@@ -42,6 +49,13 @@ cargo run --example cli -- list-markets -s 1 -c 10932509 -e 34433119
 cargo run --example cli -- list-runners -m 1.241472080
 cargo run --example cli -- get-odds -m 1.241472080
 cargo run --example cli -- get-account
+
+# Ordering commands (standard formatting)
+cargo run --example cli -- place-order -m 1.241472080 -r 123456 -s BACK -p 2.5 -a 10
+cargo run --example cli -- place-order -m 1.241472080 -r 123456 -s LAY -p 3.0 -a 5 --persistence PERSIST
+cargo run --example cli -- list-orders
+cargo run --example cli -- list-orders -m 1.241472080
+cargo run --example cli -- cancel-order -m 1.241472080 -b 12345678
 
 ## Other Examples
 cargo run --example streaming
@@ -59,11 +73,13 @@ The library includes two comprehensive CLI tools for browsing Betfair data hiera
 - Hierarchical data browsing from sports → competitions → events → markets → odds/runners
 - Parameter-based filtering at each level
 - Commands: `list_sports`, `list_competitions`, `list_events`, `list_markets`, `get_odds`, `list_runners`, `get_account`
+- Order management: `place_order`, `cancel_order`, `list_orders`
 
 ### cli Tool
 - Standard formatting without emojis
 - Same hierarchical browsing capabilities
 - Commands use kebab-case: `list-sports`, `list-competitions`, `list-events`, `list-markets`, `get-odds`, `list-runners`, `get-account`
+- Order management: `place-order`, `cancel-order`, `list-orders`
 
 Both CLIs support:
 - Required sport ID for all filtered queries
@@ -73,6 +89,12 @@ Both CLIs support:
 - Display of back/lay prices with available liquidity
 - Runner names, handicaps, and metadata for each selection
 - Account information including funds, balances, and user details
+- **Order Management Features:**
+  - Place BACK and LAY orders with customizable price and stake
+  - Set order persistence (LAPSE or PERSIST)
+  - List all current orders or filter by market
+  - Cancel orders by bet ID
+  - View order status, matched amounts, and timestamps
 - Automatic sorting and pagination of results
 - Context-aware hints for next steps
 
