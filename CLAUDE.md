@@ -30,16 +30,16 @@ cargo run --example betfair -- list_sports                             # List al
 cargo run --example betfair -- list_competitions -s 1                  # List competitions for Soccer
 cargo run --example betfair -- list_events -s 1 -c 10932509          # List events for Premier League
 cargo run --example betfair -- list_markets -s 1 -e 34433119         # List markets for specific event
-cargo run --example betfair -- get_odds -m 1.241472080            # Get odds/prices for specific market
 cargo run --example betfair -- list_runners -m 1.241472080        # List runners/selections for specific market
+cargo run --example betfair -- get_odds -m 1.241472080            # Get odds/prices for specific market
 
 # Alternative CLI with standard formatting
 cargo run --example cli -- list-sports
 cargo run --example cli -- list-competitions -s 1
 cargo run --example cli -- list-events -s 1 -c 10932509
 cargo run --example cli -- list-markets -s 1 -c 10932509 -e 34433119
-cargo run --example cli -- get-odds -m 1.241472080
 cargo run --example cli -- list-runners -m 1.241472080
+cargo run --example cli -- get-odds -m 1.241472080
 
 ## Other Examples
 cargo run --example streaming
