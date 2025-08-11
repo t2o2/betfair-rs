@@ -1,6 +1,6 @@
-use std::fs;
-use serde::Deserialize;
 use anyhow::Result;
+use serde::Deserialize;
+use std::fs;
 use toml;
 use tracing::info;
 

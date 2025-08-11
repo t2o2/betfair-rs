@@ -305,7 +305,14 @@ pub struct ClearedOrderSummary {
 }
 
 impl Order {
-    pub fn new(market_id: String, selection_id: u64, side: OrderSide, price: f64, size: f64, tif: Option<TimeInForceType>) -> Self {
+    pub fn new(
+        market_id: String,
+        selection_id: u64,
+        side: OrderSide,
+        price: f64,
+        size: f64,
+        tif: Option<TimeInForceType>,
+    ) -> Self {
         Self {
             market_id,
             selection_id,

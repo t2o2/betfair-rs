@@ -1,15 +1,15 @@
 use anyhow::Result;
-use tracing::info;
+use betfair_rs::{betfair, config, orderbook};
 use std::collections::HashMap;
 use std::error::Error;
-use betfair_rs::{config, betfair, orderbook};
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
-    
+
     info!("Betfair Trading Streamer Starting...");
 
     let config = config::Config::new()?;
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let token = client.get_session_token().await.unwrap();
     info!("Betfair session token: {}", token);
 
-    client.set_orderbook_callback(orderbook_callback);
+    client.set_orderbook_callback(orderbook_callback)?;
 
     client.connect().await?;
     info!("Connected to Betfair streaming service");
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     info!("Streaming session completed");
     Ok(())
-} 
+}
 
 fn orderbook_callback(market_id: String, orderbooks: HashMap<String, orderbook::Orderbook>) {
     info!("\n=== Orderbook Update ===");

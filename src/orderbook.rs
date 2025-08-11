@@ -14,13 +14,17 @@ pub struct PriceLevel {
 
 impl Orderbook {
     pub fn new() -> Self {
-        Self { ts: 0, bids: Vec::new(), asks: Vec::new() }
+        Self {
+            ts: 0,
+            bids: Vec::new(),
+            asks: Vec::new(),
+        }
     }
 
     pub fn set_ts(&mut self, ts: i64) {
         self.ts = ts;
     }
-    
+
     pub fn add_bid(&mut self, level: usize, price: f64, size: f64) {
         if size == 0.0 {
             // Remove the level if size is 0
@@ -34,10 +38,13 @@ impl Orderbook {
                 self.bids[index] = PriceLevel { level, price, size };
             } else {
                 // Insert new level maintaining order
-                let insert_pos = self.bids.iter()
+                let insert_pos = self
+                    .bids
+                    .iter()
                     .position(|l| l.level > level)
                     .unwrap_or(self.bids.len());
-                self.bids.insert(insert_pos, PriceLevel { level, price, size });
+                self.bids
+                    .insert(insert_pos, PriceLevel { level, price, size });
             }
         }
     }
@@ -55,10 +62,13 @@ impl Orderbook {
                 self.asks[index] = PriceLevel { level, price, size };
             } else {
                 // Insert new level maintaining order
-                let insert_pos = self.asks.iter()
+                let insert_pos = self
+                    .asks
+                    .iter()
                     .position(|l| l.level > level)
                     .unwrap_or(self.asks.len());
-                self.asks.insert(insert_pos, PriceLevel { level, price, size });
+                self.asks
+                    .insert(insert_pos, PriceLevel { level, price, size });
             }
         }
     }
@@ -75,11 +85,17 @@ impl Orderbook {
         let mut output = String::new();
         output.push_str("\n  Asks:\n");
         for ask in self.asks.iter().rev() {
-            output.push_str(&format!("    Level {}: Price = {:.2}, Size = {:.2}\n", ask.level, ask.price, ask.size));
+            output.push_str(&format!(
+                "    Level {}: Price = {:.2}, Size = {:.2}\n",
+                ask.level, ask.price, ask.size
+            ));
         }
         output.push_str("  Bids:\n");
         for bid in &self.bids {
-            output.push_str(&format!("    Level {}: Price = {:.2}, Size = {:.2}\n", bid.level, bid.price, bid.size));
+            output.push_str(&format!(
+                "    Level {}: Price = {:.2}, Size = {:.2}\n",
+                bid.level, bid.price, bid.size
+            ));
         }
         output
     }

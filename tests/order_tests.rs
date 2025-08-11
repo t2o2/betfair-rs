@@ -8,7 +8,7 @@ fn test_order_creation() {
         OrderSide::Back,
         2.0,
         10.0,
-        None
+        None,
     );
 
     assert_eq!(order.market_id, "1.123456789");
@@ -16,7 +16,7 @@ fn test_order_creation() {
     assert_eq!(order.side, OrderSide::Back);
     assert_eq!(order.order_type, OrderType::Limit);
     assert_eq!(order.handicap, 0.0);
-    
+
     let limit_order = order.limit_order.unwrap();
     assert_eq!(limit_order.size, 10.0);
     assert_eq!(limit_order.price, 2.0);
@@ -31,7 +31,7 @@ fn test_order_to_place_instruction() {
         OrderSide::Lay,
         3.0,
         5.0,
-        None
+        None,
     );
 
     let instruction = order.to_place_instruction();
@@ -40,7 +40,7 @@ fn test_order_to_place_instruction() {
     assert_eq!(instruction.handicap, 0.0);
     assert_eq!(instruction.side, OrderSide::Lay);
     assert_eq!(instruction.order_type, Some(OrderType::Limit));
-    
+
     let limit_order = instruction.limit_order.unwrap();
     assert_eq!(limit_order.size, 5.0);
     assert_eq!(limit_order.price, 3.0);
@@ -55,7 +55,7 @@ fn test_order_side_serialization() {
         OrderSide::Back,
         2.0,
         10.0,
-        None
+        None,
     );
 
     let lay_order = Order::new(
@@ -64,7 +64,7 @@ fn test_order_side_serialization() {
         OrderSide::Lay,
         2.0,
         10.0,
-        None
+        None,
     );
 
     assert_ne!(back_order.side, lay_order.side);
@@ -78,7 +78,7 @@ fn test_order_type_serialization() {
         OrderSide::Back,
         2.0,
         10.0,
-        None
+        None,
     );
 
     assert_eq!(limit_order.order_type, OrderType::Limit);

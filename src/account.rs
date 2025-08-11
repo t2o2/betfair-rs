@@ -43,4 +43,4 @@ pub struct GetAccountFundsResponse {
     pub points_balance: f64,
     #[serde(rename = "wallet")]
     pub wallet: String,
-} 
+}

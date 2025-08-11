@@ -1,17 +1,19 @@
-use tokio::io::{AsyncWriteExt, AsyncBufReadExt};
-use tokio::net::TcpStream;
-use tokio_native_tls::native_tls::TlsConnector;
-use tracing::{info, error, debug};
-use anyhow::Result;
-use tokio::sync::mpsc;
-use crate::msg_model::MarketChangeMessage;
+use crate::connection_state::{ConnectionManager, ConnectionState};
 use crate::msg_model::HeartbeatMessage;
-use crate::orderbook::Orderbook;
-use std::collections::{HashSet, HashMap};
-use std::time::{Duration, Instant};
-use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use crate::msg_model::MarketChangeMessage;
 use crate::msg_model::OrderChangeMessage;
+use crate::orderbook::Orderbook;
+use crate::retry::{RetryConfig, RetryPolicy};
+use anyhow::Result;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio_native_tls::native_tls::TlsConnector;
+use tracing::{debug, error, info, warn};
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
@@ -27,26 +29,37 @@ pub struct BetfairStreamer {
     message_sender: Option<mpsc::Sender<String>>,
     message_receiver: Option<mpsc::Receiver<String>>,
     subscribed_markets: HashSet<(String, usize)>,
+    subscribed_to_orders: bool,
     last_message_ts: Arc<Mutex<Instant>>,
     heartbeat_threshold: Duration,
     is_resubscribing: Arc<Mutex<bool>>,
     orderbooks: HashMap<String, HashMap<String, Orderbook>>,
+    connection_manager: ConnectionManager,
+    retry_policy: RetryPolicy,
 }
 
 impl BetfairStreamer {
     pub fn new(app_key: String, ssoid: String) -> Self {
-        Self { 
-            app_key, 
-            ssoid, 
+        Self {
+            app_key,
+            ssoid,
             orderbook_callback: None,
             orderupdate_callback: None,
             message_sender: None,
             message_receiver: None,
             subscribed_markets: HashSet::new(),
+            subscribed_to_orders: false,
             last_message_ts: Arc::new(Mutex::new(Instant::now() + Duration::from_secs(10))),
             heartbeat_threshold: Duration::from_secs(10),
             is_resubscribing: Arc::new(Mutex::new(false)),
             orderbooks: HashMap::new(),
+            connection_manager: ConnectionManager::new(),
+            retry_policy: RetryPolicy::new(RetryConfig {
+                max_attempts: 5,
+                initial_delay: Duration::from_secs(1),
+                max_delay: Duration::from_secs(60),
+                multiplier: 2.0,
+            }),
         }
     }
 
@@ -65,6 +78,9 @@ impl BetfairStreamer {
     }
 
     pub async fn connect_betfair_tls_stream(&mut self) -> Result<()> {
+        self.connection_manager
+            .set_state(ConnectionState::Connecting)
+            .await;
         info!("TLS connect starting");
 
         let auth_msg = format!(
@@ -73,16 +89,19 @@ impl BetfairStreamer {
         );
         info!("{}", auth_msg);
         let tcp_stream = TcpStream::connect(STREAM_API_ENDPOINT).await?;
-        
+
         let connector = TlsConnector::builder()
             .build()
-            .unwrap();
+            .map_err(|e| anyhow::anyhow!("Failed to build TLS connector: {}", e))?;
         let connector = tokio_native_tls::TlsConnector::from(connector);
-        
-        let tls_stream = connector.connect(STREAM_API_HOST, tcp_stream).await.unwrap();
-        
+
+        let tls_stream = connector
+            .connect(STREAM_API_HOST, tcp_stream)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to establish TLS connection: {}", e))?;
+
         let (reader, mut writer) = tokio::io::split(tls_stream);
-        
+
         // Set up channels for message passing
         let (tx_write, mut rx_write) = mpsc::channel::<String>(100);
         let (tx_read, rx_read) = mpsc::channel::<String>(100);
@@ -102,7 +121,7 @@ impl BetfairStreamer {
         tokio::spawn(async move {
             let mut reader = tokio::io::BufReader::new(reader);
             let mut line = String::new();
-            
+
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
@@ -110,7 +129,7 @@ impl BetfairStreamer {
                     Ok(_) => {
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
                         debug!("Received message: {}", line);
-                        
+
                         if let Err(e) = tx_read.send(line.clone()).await {
                             error!("Error sending message to main task: {}", e);
                             break;
@@ -126,6 +145,11 @@ impl BetfairStreamer {
 
         // Send initial authentication message
         self.send_message(auth_msg).await?;
+
+        self.connection_manager
+            .set_state(ConnectionState::Connected)
+            .await;
+        info!("Successfully connected to Betfair streaming service");
 
         Ok(())
     }
@@ -155,10 +179,64 @@ impl BetfairStreamer {
     pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
         let sub_msg = Self::create_market_subscription_message(&market_id, levels);
         info!("Sending subscription: {}", sub_msg);
-        
+
         self.send_message(sub_msg).await?;
         self.subscribed_markets.insert((market_id, levels));
         Ok(())
+    }
+
+    pub async fn subscribe_to_orders(&mut self) -> Result<()> {
+        let order_sub_msg = Self::create_order_subscription_message();
+        info!("Sending order subscription: {}", order_sub_msg);
+
+        self.send_message(order_sub_msg).await?;
+        self.subscribed_to_orders = true;
+        Ok(())
+    }
+
+    async fn reconnect(&mut self) -> Result<()> {
+        let attempts = self.connection_manager.get_reconnect_attempts().await;
+        if attempts >= 5 {
+            self.connection_manager
+                .set_state(ConnectionState::Failed(format!(
+                    "Failed to reconnect after {} attempts",
+                    attempts
+                )))
+                .await;
+            return Err(anyhow::anyhow!("Max reconnection attempts exceeded"));
+        }
+
+        self.connection_manager
+            .set_state(ConnectionState::Reconnecting)
+            .await;
+        warn!("Attempting to reconnect (attempt {})", attempts + 1);
+
+        // Try to reconnect
+        match self.connect_betfair_tls_stream().await {
+            Ok(_) => {
+                info!("Successfully reconnected to Betfair streaming service");
+
+                // Resubscribe to all markets
+                for (market_id, levels) in self.subscribed_markets.clone() {
+                    if let Err(e) = self.subscribe(market_id, levels).await {
+                        error!("Failed to resubscribe to market: {}", e);
+                    }
+                }
+
+                // Resubscribe to orders if needed
+                if self.subscribed_to_orders {
+                    if let Err(e) = self.subscribe_to_orders().await {
+                        error!("Failed to resubscribe to orders: {}", e);
+                    }
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                error!("Reconnection failed: {}", e);
+                Err(e)
+            }
+        }
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -179,17 +257,30 @@ impl BetfairStreamer {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 let elapsed = {
-                    last_heartbeat.lock().unwrap().elapsed()
+                    match last_heartbeat.lock() {
+                        Ok(guard) => guard.elapsed(),
+                        Err(e) => {
+                            error!("Mutex lock poisoned: {}", e);
+                            continue;
+                        }
+                    }
                 };
-                
+
                 if elapsed > heartbeat_threshold {
                     let should_resubscribe = {
-                        let mut guard = is_resubscribing.lock().unwrap();
-                        if !*guard {
-                            *guard = true;
-                            true
-                        } else {
-                            false
+                        match is_resubscribing.lock() {
+                            Ok(mut guard) => {
+                                if !*guard {
+                                    *guard = true;
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            Err(e) => {
+                                error!("Mutex lock poisoned: {}", e);
+                                false
+                            }
                         }
                     };
 
@@ -198,27 +289,69 @@ impl BetfairStreamer {
                             // Resubscribe to all markets
                             info!("Resubscribing to {} markets", subscribed_markets.len());
                             for (market_id, levels) in &subscribed_markets {
-                                let subscription_message = BetfairStreamer::create_market_subscription_message(market_id, *levels);
+                                let subscription_message =
+                                    BetfairStreamer::create_market_subscription_message(
+                                        market_id, *levels,
+                                    );
                                 info!("Sending subscription: {}", subscription_message);
                                 if let Err(e) = sender.send(subscription_message).await {
                                     error!("Failed to send resubscription message: {}", e);
                                 }
                             }
                         }
-                        
-                        let mut guard = is_resubscribing.lock().unwrap();
-                        *guard = false;
+
+                        match is_resubscribing.lock() {
+                            Ok(mut guard) => {
+                                *guard = false;
+                            }
+                            Err(e) => {
+                                error!("Mutex lock poisoned: {}", e);
+                            }
+                        }
                     }
                 }
             }
         });
 
-        while let Some(message) = receiver.recv().await {
-            self.handle_message(message).await?;
+        loop {
+            match receiver.recv().await {
+                Some(message) => {
+                    if let Err(e) = self.handle_message(message).await {
+                        error!("Error handling message: {}", e);
+                        // Continue processing other messages even if one fails
+                    }
+                }
+                None => {
+                    // Channel closed, indicating disconnection
+                    warn!("Message channel closed, connection lost");
+                    self.connection_manager
+                        .set_state(ConnectionState::Disconnected)
+                        .await;
+
+                    // Attempt reconnection
+                    match self.reconnect().await {
+                        Ok(_) => {
+                            info!("Reconnection successful, restarting message processing");
+                            // Get new receiver after reconnection
+                            if let Some(new_receiver) = self.message_receiver.take() {
+                                receiver = new_receiver;
+                                continue;
+                            } else {
+                                error!("Failed to get new receiver after reconnection");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to reconnect: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         heartbeat_handle.abort();
-        
+
         Ok(())
     }
 
@@ -227,30 +360,38 @@ impl BetfairStreamer {
         if let Some(op) = message.get("op").and_then(Value::as_str) {
             match op {
                 "mcm" => {
-                    if let Ok(market_change_message) = serde_json::from_str::<MarketChangeMessage>(&message.to_string()) {
+                    if let Ok(market_change_message) =
+                        serde_json::from_str::<MarketChangeMessage>(&message.to_string())
+                    {
                         debug!("Parsed MarketChangeMessage: {:?}", &market_change_message);
                         self.parse_market_change_message(market_change_message);
-                    }
-                    else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
+                    } else if let Ok(heartbeat_message) =
+                        serde_json::from_str::<HeartbeatMessage>(&message.to_string())
+                    {
                         debug!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
-                    }
-                    else {
+                    } else {
                         info!("Received unknown message: {}", message);
                     }
-                    *self.last_message_ts.lock().unwrap() = Instant::now();
+                    if let Ok(mut ts) = self.last_message_ts.lock() {
+                        *ts = Instant::now();
+                    }
                 }
                 "ocm" => {
-                    if let Ok(order_change_message) = serde_json::from_str::<OrderChangeMessage>(&message.to_string()) {
+                    if let Ok(order_change_message) =
+                        serde_json::from_str::<OrderChangeMessage>(&message.to_string())
+                    {
                         debug!("Parsed OrderChangeMessage: {:?}", &order_change_message);
                         self.parse_order_change_message(order_change_message);
-                    }
-                    else if let Ok(heartbeat_message) = serde_json::from_str::<HeartbeatMessage>(&message.to_string()) {
+                    } else if let Ok(heartbeat_message) =
+                        serde_json::from_str::<HeartbeatMessage>(&message.to_string())
+                    {
                         debug!("Parsed HeartbeatMessage: {:?}", &heartbeat_message);
-                    }
-                    else {
+                    } else {
                         info!("Received unknown order message: {}", message);
                     }
-                    *self.last_message_ts.lock().unwrap() = Instant::now();
+                    if let Ok(mut ts) = self.last_message_ts.lock() {
+                        *ts = Instant::now();
+                    }
                 }
                 _ => {}
             }
@@ -262,11 +403,16 @@ impl BetfairStreamer {
     fn parse_market_change_message(&mut self, market_change_message: MarketChangeMessage) {
         for market_change in market_change_message.market_changes {
             let market_id = market_change.id;
-            let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_insert_with(|| HashMap::new());
-    
+            let market_orderbooks = self
+                .orderbooks
+                .entry(market_id.clone())
+                .or_insert_with(|| HashMap::new());
+
             for runner_change in market_change.runner_changes {
                 let runner_id = runner_change.id.to_string();
-                let orderbook = market_orderbooks.entry(runner_id.clone()).or_insert_with(|| Orderbook::new());
+                let orderbook = market_orderbooks
+                    .entry(runner_id.clone())
+                    .or_insert_with(|| Orderbook::new());
                 if let Some(batb) = runner_change.available_to_back {
                     for level in batb {
                         if level.len() >= 3 {
@@ -277,7 +423,7 @@ impl BetfairStreamer {
                         }
                     }
                 }
-        
+
                 if let Some(batl) = runner_change.available_to_lay {
                     for level in batl {
                         if level.len() >= 3 {
@@ -291,7 +437,6 @@ impl BetfairStreamer {
                 orderbook.set_ts(market_change_message.pt);
                 debug!("Orderbook for runner {}:", runner_id);
                 debug!("\n{}", orderbook.pretty_print());
-
             }
 
             if let Some(callback) = &self.orderbook_callback {
@@ -304,7 +449,6 @@ impl BetfairStreamer {
             }
         }
     }
-
 
     fn parse_order_change_message(&mut self, order_change_message: OrderChangeMessage) {
         if let Some(callback) = &self.orderupdate_callback {

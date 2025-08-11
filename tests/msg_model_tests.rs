@@ -1,4 +1,4 @@
-use betfair_rs::msg_model::{LoginResponse, MarketChangeMessage, HeartbeatMessage};
+use betfair_rs::msg_model::{HeartbeatMessage, LoginResponse, MarketChangeMessage};
 use serde_json::json;
 
 #[test]
@@ -46,19 +46,19 @@ fn test_market_change_message_deserialization() {
     assert_eq!(message.clock, "AJctAKk5AJMu");
     assert_eq!(message.pt, 1742747423927i64);
     assert_eq!(message.market_changes.len(), 1);
-    
+
     let market_change = &message.market_changes[0];
     assert_eq!(market_change.id, "1.241200277");
     assert_eq!(market_change.runner_changes.len(), 1);
-    
+
     let runner_change = &market_change.runner_changes[0];
     assert_eq!(runner_change.id, 58805);
-    
+
     let batb = runner_change.available_to_back.as_ref().unwrap();
     assert_eq!(batb[0][0], 0.0);
     assert_eq!(batb[0][1], 4.3);
     assert_eq!(batb[0][2], 943.24);
-    
+
     let batl = runner_change.available_to_lay.as_ref().unwrap();
     assert_eq!(batl[0][0], 0.0);
     assert_eq!(batl[0][1], 4.4);
@@ -96,4 +96,4 @@ fn test_heartbeat_message_deserialization() {
     assert_eq!(message.ct, "HEARTBEAT");
     assert_eq!(message.op, "mcm");
     assert_eq!(message.pt, 1742747423927i64);
-} 
+}

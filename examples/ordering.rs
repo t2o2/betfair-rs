@@ -1,15 +1,15 @@
 use anyhow::Result;
-use tracing::info;
-use std::error::Error;
-use betfair_rs::{config, betfair, order::{OrderSide}};
+use betfair_rs::{betfair, config, order::OrderSide};
 use serde_json::json;
+use std::error::Error;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
-    
+
     info!("Betfair Trading Ordering Starting...");
 
     let config = config::Config::new()?;
@@ -26,73 +26,116 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // First place a persistent order
     info!("Placing a persistent order...");
-    let order = betfair_rs::order::Order::new(market_id.clone(), runner_id, side.clone(), price, size, None);
+    let order = betfair_rs::order::Order::new(
+        market_id.clone(),
+        runner_id,
+        side.clone(),
+        price,
+        size,
+        None,
+    );
     let order_response = client.place_order(order).await?;
-    info!("Persistent order response:\n{}", serde_json::to_string_pretty(&json!(order_response))?);
+    info!(
+        "Persistent order response:\n{}",
+        serde_json::to_string_pretty(&json!(order_response))?
+    );
 
     if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
         info!("Placed persistent order with bet ID: {}", bet_id);
-        
+
         // Check order status immediately after placing
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("Initial persistent order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "Initial persistent order status:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
-        
+
         info!("Waiting 5 seconds before checking status again");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        
+
         // Check order status again
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("Persistent order status after 5 seconds:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "Persistent order status after 5 seconds:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
-        
+
         info!("Waiting 5 more seconds before canceling order");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        
-        let cancel_response = client.cancel_order(market_id.clone(), bet_id.clone()).await?;
-        info!("Cancel persistent order response:\n{}", serde_json::to_string_pretty(&json!(cancel_response))?);
-        
+
+        let cancel_response = client
+            .cancel_order(market_id.clone(), bet_id.clone())
+            .await?;
+        info!(
+            "Cancel persistent order response:\n{}",
+            serde_json::to_string_pretty(&json!(cancel_response))?
+        );
+
         // Check final order status after cancellation
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("Final persistent order status after cancellation:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "Final persistent order status after cancellation:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
     } else {
         info!("No bet ID in persistent order response, order may have failed");
     }
 
     info!("\nPlacing a FOK order...");
-    let order = betfair_rs::order::Order::new(market_id.clone(), runner_id, side, price, size, Some(betfair_rs::order::TimeInForceType::FillOrKill));
+    let order = betfair_rs::order::Order::new(
+        market_id.clone(),
+        runner_id,
+        side,
+        price,
+        size,
+        Some(betfair_rs::order::TimeInForceType::FillOrKill),
+    );
     let order_response = client.place_order(order).await?;
-    info!("FOK order response:\n{}", serde_json::to_string_pretty(&json!(order_response))?);
+    info!(
+        "FOK order response:\n{}",
+        serde_json::to_string_pretty(&json!(order_response))?
+    );
 
     if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
         info!("Placed FOK order with bet ID: {}", bet_id);
-        
+
         // Check order status immediately after placing
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("Initial FOK order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "Initial FOK order status:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
-        
+
         info!("Waiting 5 seconds before checking status again");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        
+
         // Check order status again
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("FOK order status after 5 seconds:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "FOK order status after 5 seconds:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
-        
+
         info!("Waiting 5 more seconds before checking final status");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        
+
         // Check final order status
         let status = client.get_order_status(vec![bet_id.clone()]).await?;
         if !status.is_empty() {
-            info!("Final FOK order status:\n{}", serde_json::to_string_pretty(&json!(status))?);
+            info!(
+                "Final FOK order status:\n{}",
+                serde_json::to_string_pretty(&json!(status))?
+            );
         }
     } else {
         info!("No bet ID in FOK order response, order may have failed");
@@ -101,4 +144,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Betfair Trading Ordering Completed");
 
     Ok(())
-} 
+}

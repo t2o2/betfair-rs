@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-
 #[derive(Debug, Deserialize)]
 pub struct LoginResponse {
     #[serde(rename = "sessionToken")]
@@ -35,7 +34,7 @@ pub struct MarketChangeMessage {
 pub struct MarketChange {
     pub id: String,
     #[serde(rename = "rc")]
-    pub runner_changes: Vec<RunnerChange>
+    pub runner_changes: Vec<RunnerChange>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +44,7 @@ pub struct RunnerChange {
     #[serde(rename = "batb")]
     pub available_to_back: Option<Vec<Vec<f64>>>, // Array of [index, price, size]
     #[serde(rename = "batl")]
-    pub available_to_lay: Option<Vec<Vec<f64>>> // Array of [index, price, size]
+    pub available_to_lay: Option<Vec<Vec<f64>>>, // Array of [index, price, size]
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,14 +58,14 @@ pub struct HeartbeatMessage {
 }
 /*
 Stream API Status - latency
-If any latency occurs, the ChangeMessage for the Order and Market Stream will contain a 'status' field which will 
-give an indication of the health of the stream data provided by the service.  This feature will be used in addition 
-to the heartbeat mechanism which only gives an indication that the service is up but doesn't provide an indication 
-of the latency of the data provided. 
+If any latency occurs, the ChangeMessage for the Order and Market Stream will contain a 'status' field which will
+give an indication of the health of the stream data provided by the service.  This feature will be used in addition
+to the heartbeat mechanism which only gives an indication that the service is up but doesn't provide an indication
+of the latency of the data provided.
 
-By default, when the stream data is up to date the value is set to null and will be set to 503 when the stream data 
-is unreliable (i.e. not all bets and market changes will be reflected on the stream) due to an increase in push 
-latency.  Clients shouldn't disconnect if status 503 is returned; when the stream recovers updates will be sent 
+By default, when the stream data is up to date the value is set to null and will be set to 503 when the stream data
+is unreliable (i.e. not all bets and market changes will be reflected on the stream) due to an increase in push
+latency.  Clients shouldn't disconnect if status 503 is returned; when the stream recovers updates will be sent
 containing the latest data.  The status is sent per subscription on heartbeats and change messages.
 
 Example of message containing the status field:

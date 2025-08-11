@@ -1,15 +1,15 @@
 use anyhow::Result;
-use tracing::info;
-use std::error::Error;
-use betfair_rs::{config, betfair};
 use betfair_rs::msg_model::OrderChangeMessage;
+use betfair_rs::{betfair, config};
+use std::error::Error;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .init();
-    
+
     info!("Betfair Order Streaming Example Starting...");
 
     // Initialize client and login
@@ -41,13 +41,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if let Some(unmatched_orders) = runner_change.uo {
                     for order in unmatched_orders {
                         info!("Unmatched order: ID={}, Price={}, Size={}, Side={}, Status={}, Remaining={}, Matched={}, Lapsed={}, Cancelled={}, Voided={}", 
-                            order.id, order.p, order.s, order.side, order.status, 
+                            order.id, order.p, order.s, order.side, order.status,
                             order.sr, order.sm, order.sl, order.sc, order.sv);
                     }
                 }
             }
         }
-    });
+    })?;
 
     client.subscribe_to_orders().await?;
 
