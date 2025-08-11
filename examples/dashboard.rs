@@ -47,6 +47,12 @@ enum AppMode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum OrderField {
+    Price,
+    Size,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum Panel {
     MarketBrowser,
     OrderBook,
@@ -135,6 +141,7 @@ struct App {
     order_side: Side,
     order_price: String,
     order_size: String,
+    order_field_focus: OrderField,
     
     // Account state
     available_balance: f64,
@@ -186,6 +193,7 @@ impl App {
             order_side: Side::Back,
             order_price: String::new(),
             order_size: String::new(),
+            order_field_focus: OrderField::Price,
             
             available_balance: 0.0,
             exposure: 0.0,
@@ -508,7 +516,6 @@ fn ui(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
-            Constraint::Length(3),
             Constraint::Length(2),  // Shortcuts bar
         ])
         .split(f.area());
@@ -541,11 +548,8 @@ fn ui(f: &mut Frame, app: &App) {
     // Render Order Entry
     render_order_entry(f, right_chunks[1], app);
     
-    // Render Status Bar
-    render_status_bar(f, chunks[1], app);
-    
-    // Render Shortcuts Bar
-    render_shortcuts_bar(f, chunks[2], app);
+    // Render Shortcuts Bar with status info
+    render_shortcuts_bar(f, chunks[1], app);
 }
 
 fn get_selection_key(index: usize) -> String {
@@ -699,13 +703,16 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
     if !app.active_orders.is_empty() {
         let inner = block.inner(area);
         
-        let rows: Vec<Row> = app.active_orders.iter().map(|order| {
+        let rows: Vec<Row> = app.active_orders.iter().enumerate().map(|(index, order)| {
             let side_color = match order.side {
                 Side::Back => Color::Green,
                 Side::Lay => Color::Red,
             };
             
+            let key = get_selection_key(index);
+            
             Row::new(vec![
+                Cell::from(format!("[{}]", key)).style(Style::default().fg(Color::Yellow)),
                 Cell::from(order.bet_id.chars().take(8).collect::<String>()),
                 Cell::from(format!("{:?}", order.side)).style(Style::default().fg(side_color)),
                 Cell::from(format!("{:.2}", order.price)),
@@ -722,6 +729,7 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
         let table = Table::new(
             rows,
             [
+                Constraint::Length(4),
                 Constraint::Length(8),
                 Constraint::Length(5),
                 Constraint::Length(7),
@@ -730,13 +738,13 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
                 Constraint::Length(10),
             ]
         )
-        .header(Row::new(vec!["ID", "Side", "Price", "Size", "Matched", "Status"])
+        .header(Row::new(vec!["Key", "ID", "Side", "Price", "Size", "Matched", "Status"])
             .style(Style::default().add_modifier(Modifier::BOLD)))
         .block(Block::default())
         .highlight_style(
             Style::default()
                 .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-                .fg(Color::Cyan)
+                .fg(Color::Yellow)
         )
         .highlight_symbol("► ");
         
@@ -791,11 +799,21 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     
     // Price input
     let price_text = format!("Price: {}", app.order_price);
-    f.render_widget(Paragraph::new(price_text), chunks[2]);
+    let price_style = if app.order_field_focus == OrderField::Price {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    f.render_widget(Paragraph::new(price_text).style(price_style), chunks[2]);
     
     // Size input
     let size_text = format!("Stake: £{}", app.order_size);
-    f.render_widget(Paragraph::new(size_text), chunks[3]);
+    let size_style = if app.order_field_focus == OrderField::Size {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    f.render_widget(Paragraph::new(size_text).style(size_style), chunks[3]);
     
     // Instructions
     let instructions = if is_active {
@@ -812,94 +830,74 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(block, area);
 }
 
-fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
+
+fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
+    // Split the bar into left (status) and right (shortcuts) sections
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(15),
-            Constraint::Length(20),
-            Constraint::Length(15),
-            Constraint::Min(1),
-            Constraint::Length(30),
+            Constraint::Length(50),  // Status info
+            Constraint::Min(1),       // Shortcuts
         ])
         .split(area);
     
-    // Connection status
-    let conn_status = if app.api_connected {
-        Span::styled("[Connected]", Style::default().fg(Color::Green))
-    } else {
-        Span::styled("[Disconnected]", Style::default().fg(Color::Red))
-    };
-    f.render_widget(Paragraph::new(conn_status), chunks[0]);
+    // Render status info on the left
+    let status_parts = vec![
+        if app.api_connected {
+            Span::styled("● Connected", Style::default().fg(Color::Green))
+        } else {
+            Span::styled("● Disconnected", Style::default().fg(Color::Red))
+        },
+        Span::raw(" | "),
+        Span::raw(format!("Balance: £{:.2}", app.available_balance)),
+        Span::raw(" | "),
+        Span::raw(format!("Orders: {}", app.total_orders)),
+    ];
     
-    // Balance
-    let balance = format!("Balance: £{:.2}", app.available_balance);
-    f.render_widget(Paragraph::new(balance), chunks[1]);
-    
-    // Orders count
-    let orders = format!("Orders: {}", app.total_orders);
-    f.render_widget(Paragraph::new(orders), chunks[2]);
-    
-    // Status message or error
-    let message = if let Some(err) = &app.error_message {
-        Span::styled(err, Style::default().fg(Color::Red))
-    } else {
-        Span::raw(&app.status_message)
-    };
-    f.render_widget(Paragraph::new(message), chunks[3]);
-    
-    // Help
-    let help = "Tab:Panel | O:Order | R:Refresh | ?:Help | Q:Quit";
+    let status_line = Line::from(status_parts);
     f.render_widget(
-        Paragraph::new(help)
-            .style(Style::default().fg(Color::DarkGray))
-            .alignment(Alignment::Right),
-        chunks[4]
+        Paragraph::new(status_line)
+            .style(Style::default().bg(Color::Black)),
+        chunks[0]
     );
-}
-
-fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
+    
+    // Render shortcuts on the right
     let shortcuts = match app.mode {
         AppMode::Browse => {
             match app.active_panel {
                 Panel::MarketBrowser => {
                     vec![
-                        ("1-9/a-z", "Select Item"),
+                        ("1-9/a-z", "Select"),
                         ("Backspace", "Back"),
                         ("Tab", "Next Panel"),
-                        ("o", "Order Mode"),
+                        ("o", "Order"),
                         ("r", "Refresh"),
-                        ("?", "Help"),
                         ("q", "Quit"),
                     ]
                 },
                 Panel::OrderBook => {
                     vec![
                         ("Tab", "Next Panel"),
-                        ("Shift+Tab", "Prev Panel"),
-                        ("o", "Order Mode"),
+                        ("o", "Order"),
                         ("r", "Refresh"),
-                        ("?", "Help"),
                         ("q", "Quit"),
                     ]
                 },
                 Panel::ActiveOrders => {
                     vec![
-                        ("↑↓/jk", "Navigate"),
-                        ("Enter", "Cancel Order"),
+                        ("1-9/a-z", "Select"),
+                        ("Enter", "Cancel"),
                         ("Tab", "Next Panel"),
-                        ("o", "Order Mode"),
+                        ("o", "Order"),
                         ("r", "Refresh"),
-                        ("?", "Help"),
                         ("q", "Quit"),
                     ]
                 },
                 Panel::OrderEntry => {
                     vec![
                         ("Tab", "Next Panel"),
-                        ("o", "Order Mode"),
+                        ("o", "Order"),
                         ("r", "Refresh"),
-                        ("?", "Help"),
                         ("q", "Quit"),
                     ]
                 },
@@ -908,7 +906,6 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
         AppMode::Order => {
             vec![
                 ("Tab", "Next Field"),
-                ("↑↓", "Adjust Value"),
                 ("Enter", "Place Order"),
                 ("Esc", "Cancel"),
                 ("b/l", "Back/Lay"),
@@ -939,16 +936,11 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
     
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray));
-    
     let shortcuts_paragraph = Paragraph::new(Line::from(shortcuts_text))
-        .block(block)
-        .alignment(Alignment::Center);
+        .style(Style::default().bg(Color::Black))
+        .alignment(Alignment::Right);
     
-    f.render_widget(shortcuts_paragraph, area);
+    f.render_widget(shortcuts_paragraph, chunks[1]);
 }
 
 async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
@@ -1112,46 +1104,64 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Char('1') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 0).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 0 { Some(0) } else { None };
                     }
                 }
                 KeyCode::Char('2') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 1).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 1 { Some(1) } else { None };
                     }
                 }
                 KeyCode::Char('3') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 2).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 2 { Some(2) } else { None };
                     }
                 }
                 KeyCode::Char('4') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 3).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 3 { Some(3) } else { None };
                     }
                 }
                 KeyCode::Char('5') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 4).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 4 { Some(4) } else { None };
                     }
                 }
                 KeyCode::Char('6') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 5).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 5 { Some(5) } else { None };
                     }
                 }
                 KeyCode::Char('7') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 6).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 6 { Some(6) } else { None };
                     }
                 }
                 KeyCode::Char('8') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 7).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 7 { Some(7) } else { None };
                     }
                 }
                 KeyCode::Char('9') => {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 8).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        app.selected_order = if app.active_orders.len() > 8 { Some(8) } else { None };
                     }
                 }
                 // Letter keys a-z for items 10-35
@@ -1159,6 +1169,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         let index = 9 + (c as usize - 'a' as usize);
                         handle_direct_selection(app, index).await?;
+                    } else if app.active_panel == Panel::ActiveOrders {
+                        let index = 9 + (c as usize - 'a' as usize);
+                        app.selected_order = if app.active_orders.len() > index { Some(index) } else { None };
                     }
                 }
                 _ => {}
@@ -1169,6 +1182,13 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Esc => {
                     app.mode = AppMode::Browse;
                     app.active_panel = Panel::MarketBrowser;
+                }
+                KeyCode::Tab => {
+                    // Toggle between Price and Size fields
+                    app.order_field_focus = match app.order_field_focus {
+                        OrderField::Price => OrderField::Size,
+                        OrderField::Size => OrderField::Price,
+                    };
                 }
                 KeyCode::Enter => {
                     if !app.order_price.is_empty() && !app.order_size.is_empty() {
@@ -1183,13 +1203,30 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     app.order_side = Side::Lay;
                 }
                 KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
-                    // Simple input handling - in real app would need proper field selection
-                    if app.order_price.len() < 10 {
-                        app.order_price.push(c);
+                    // Add input to the focused field
+                    match app.order_field_focus {
+                        OrderField::Price => {
+                            if app.order_price.len() < 10 {
+                                app.order_price.push(c);
+                            }
+                        }
+                        OrderField::Size => {
+                            if app.order_size.len() < 10 {
+                                app.order_size.push(c);
+                            }
+                        }
                     }
                 }
                 KeyCode::Backspace => {
-                    app.order_price.pop();
+                    // Remove last character from focused field
+                    match app.order_field_focus {
+                        OrderField::Price => {
+                            app.order_price.pop();
+                        }
+                        OrderField::Size => {
+                            app.order_size.pop();
+                        }
+                    }
                 }
                 _ => {}
             }
