@@ -1,5 +1,5 @@
 use anyhow::Result;
-use betfair_rs::{api_client::BetfairApiClient, config::Config};
+use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::MarketFilter};
 use std::env;
 use std::collections::HashMap;
 
@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
         });
     
     // Fetch all sports
-    let sports = client.list_sports().await?;
+    let sports = client.list_sports(None).await?;
     
     if sport_query.to_uppercase() == "ALL" {
         // Show overview of all sports with competitions
@@ -48,7 +48,11 @@ async fn main() -> Result<()> {
         
         for sport in sports.iter().filter(|s| s.market_count > 0) {
             // Get competitions for this sport
-            let competitions = client.list_competitions(vec![sport.event_type.id.clone()]).await?;
+            let filter = MarketFilter {
+                event_type_ids: Some(vec![sport.event_type.id.clone()]),
+                ..Default::default()
+            };
+            let competitions = client.list_competitions(Some(filter)).await?;
             
             if !competitions.is_empty() {
                 let top_comp = competitions.iter()
@@ -114,7 +118,11 @@ async fn main() -> Result<()> {
         println!("Total Markets: {}\n", selected_sport.market_count);
         
         // Get all competitions for this sport
-        let mut competitions = client.list_competitions(vec![sport_id.clone()]).await?;
+        let filter = MarketFilter {
+            event_type_ids: Some(vec![sport_id.clone()]),
+            ..Default::default()
+        };
+        let mut competitions = client.list_competitions(Some(filter)).await?;
         
         if competitions.is_empty() {
             println!("No competitions found for {}", sport_name);

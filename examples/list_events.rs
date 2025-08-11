@@ -1,5 +1,5 @@
 use anyhow::Result;
-use betfair_rs::{api_client::BetfairApiClient, config::Config};
+use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::MarketFilter};
 use std::env;
 
 #[tokio::main]
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
     
     // First, let's get the sport name
     println!("Fetching sport information...");
-    let sports = client.list_sports().await?;
+    let sports = client.list_sports(None).await?;
     let sport_name = sports
         .iter()
         .find(|s| s.event_type.id == sport_id)
@@ -39,7 +39,11 @@ async fn main() -> Result<()> {
     
     // List competitions for this sport
     println!("Fetching competitions for {}...\n", sport_name);
-    match client.list_competitions(vec![sport_id.clone()]).await {
+    let filter = MarketFilter {
+        event_type_ids: Some(vec![sport_id.clone()]),
+        ..Default::default()
+    };
+    match client.list_competitions(Some(filter)).await {
         Ok(competitions) => {
             if competitions.is_empty() {
                 println!("No competitions found for this sport.");
@@ -72,7 +76,11 @@ async fn main() -> Result<()> {
     
     // List events for this sport
     println!("Fetching events for {}...\n", sport_name);
-    match client.list_events(vec![sport_id.clone()]).await {
+    let filter = MarketFilter {
+        event_type_ids: Some(vec![sport_id.clone()]),
+        ..Default::default()
+    };
+    match client.list_events(Some(filter)).await {
         Ok(events) => {
             if events.is_empty() {
                 println!("No events found for this sport.");

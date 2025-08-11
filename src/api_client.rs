@@ -431,71 +431,76 @@ impl BetfairApiClient {
     }
 
     /// List all available sports (event types)
-    pub async fn list_sports(&self) -> Result<Vec<EventTypeResult>> {
+    /// 
+    /// # Arguments
+    /// * `filter` - Optional market filter. If None, returns all sports.
+    pub async fn list_sports(&self, filter: Option<MarketFilter>) -> Result<Vec<EventTypeResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
             BETTING_URL, 
             "SportsAPING/v1.0/listEventTypes",
             ListEventTypesRequest {
-                filter: MarketFilter::default(),
+                filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
             }
         ).await
     }
 
-    /// List events for specific sports
-    pub async fn list_events(&self, event_type_ids: Vec<String>) -> Result<Vec<EventResult>> {
+    /// List events with optional filtering
+    /// 
+    /// # Arguments
+    /// * `filter` - Optional market filter. Common filters:
+    ///   - `event_type_ids`: Filter by sport IDs
+    ///   - `competition_ids`: Filter by competition IDs  
+    ///   - `market_countries`: Filter by country codes
+    ///   - `in_play_only`: Only in-play events
+    /// 
+    /// # Example
+    /// ```
+    /// // Get all events for Soccer
+    /// let filter = MarketFilter {
+    ///     event_type_ids: Some(vec!["1".to_string()]),
+    ///     ..Default::default()
+    /// };
+    /// let events = client.list_events(Some(filter)).await?;
+    /// ```
+    pub async fn list_events(&self, filter: Option<MarketFilter>) -> Result<Vec<EventResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
             BETTING_URL,
             "SportsAPING/v1.0/listEvents", 
             ListEventsRequest {
-                filter: MarketFilter {
-                    event_type_ids: Some(event_type_ids),
-                    ..Default::default()
-                },
+                filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
             }
         ).await
     }
 
-    /// List competitions for specific sports
-    pub async fn list_competitions(&self, event_type_ids: Vec<String>) -> Result<Vec<CompetitionResult>> {
+    /// List competitions with optional filtering
+    /// 
+    /// # Arguments
+    /// * `filter` - Optional market filter. Common filters:
+    ///   - `event_type_ids`: Filter by sport IDs
+    ///   - `market_countries`: Filter by country codes
+    ///   - `competition_ids`: Specific competition IDs
+    /// 
+    /// # Example
+    /// ```
+    /// // Get all competitions for Tennis in USA
+    /// let filter = MarketFilter {
+    ///     event_type_ids: Some(vec!["2".to_string()]),
+    ///     market_countries: Some(vec!["US".to_string()]),
+    ///     ..Default::default()
+    /// };
+    /// let competitions = client.list_competitions(Some(filter)).await?;
+    /// ```
+    pub async fn list_competitions(&self, filter: Option<MarketFilter>) -> Result<Vec<CompetitionResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
             BETTING_URL,
             "SportsAPING/v1.0/listCompetitions",
             ListCompetitionsRequest {
-                filter: MarketFilter {
-                    event_type_ids: Some(event_type_ids),
-                    ..Default::default()
-                },
-                locale: Some("en".to_string()),
-            }
-        ).await
-    }
-
-    /// List competitions with custom filter
-    pub async fn list_competitions_filtered(&self, filter: MarketFilter) -> Result<Vec<CompetitionResult>> {
-        self.rate_limiter.acquire_for_navigation().await?;
-        self.make_json_rpc_request(
-            BETTING_URL,
-            "SportsAPING/v1.0/listCompetitions",
-            ListCompetitionsRequest {
-                filter,
-                locale: Some("en".to_string()),
-            }
-        ).await
-    }
-
-    /// List events with custom filter
-    pub async fn list_events_filtered(&self, filter: MarketFilter) -> Result<Vec<EventResult>> {
-        self.rate_limiter.acquire_for_navigation().await?;
-        self.make_json_rpc_request(
-            BETTING_URL,
-            "SportsAPING/v1.0/listEvents",
-            ListEventsRequest {
-                filter,
+                filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
             }
         ).await

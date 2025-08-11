@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     // Fetch all sports
     println!("Fetching all sports...\n");
     
-    match client.list_sports().await {
+    match client.list_sports(None).await {
         Ok(sports) => {
             println!("Found {} sports:", sports.len());
             println!("{:<10} {:<30} {}", "ID", "Name", "Market Count");

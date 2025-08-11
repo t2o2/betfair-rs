@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
     
-    match client.list_competitions_filtered(filter).await {
+    match client.list_competitions(Some(filter)).await {
         Ok(mut competitions) => {
             if competitions.is_empty() {
                 println!("No competitions found for country: {}", country_code);
@@ -63,11 +63,15 @@ async fn main() -> Result<()> {
                 
                 // We need to identify sport for each competition
                 // Since competition doesn't have sport info directly, we'll get all sports first
-                let sports = client.list_sports().await?;
+                let sports = client.list_sports(None).await?;
                 
                 // For each sport, get its competitions
                 for sport in &sports {
-                    let sport_comps = client.list_competitions(vec![sport.event_type.id.clone()]).await?;
+                    let sport_filter = MarketFilter {
+                        event_type_ids: Some(vec![sport.event_type.id.clone()]),
+                        ..Default::default()
+                    };
+                    let sport_comps = client.list_competitions(Some(sport_filter)).await?;
                     for comp in &sport_comps {
                         // Check if this competition is in our filtered list
                         if competitions.iter().any(|c| c.competition.id == comp.competition.id) {
