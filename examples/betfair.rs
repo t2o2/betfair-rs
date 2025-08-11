@@ -1,5 +1,5 @@
 use anyhow::Result;
-use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::{MarketFilter, ListMarketCatalogueRequest, common::MarketStatus}};
+use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::{MarketFilter, ListMarketCatalogueRequest, common::MarketStatus, account::GetAccountFundsRequest}};
 use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc};
 
@@ -114,6 +114,10 @@ enum Commands {
         #[arg(short, long)]
         market: String,
     },
+    
+    /// Get account funds information
+    #[command(name = "get_account")]
+    GetAccount,
 }
 
 #[tokio::main]
@@ -155,6 +159,9 @@ async fn main() -> Result<()> {
         }
         Commands::ListRunners { market } => {
             list_runners(&mut client, &market).await?;
+        }
+        Commands::GetAccount => {
+            get_account(&mut client).await?;
         }
     }
     
@@ -657,6 +664,84 @@ async fn list_runners(client: &mut BetfairApiClient, market_id: &str) -> Result<
         }
         Err(e) => {
             eprintln!("❌ Error fetching runners: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn get_account(client: &mut BetfairApiClient) -> Result<()> {
+    println!("💰 Fetching account information...\n");
+    
+    match client.get_account_funds(GetAccountFundsRequest { wallet: None }).await {
+        Ok(funds) => {
+            println!("Account Funds:");
+            println!("{}", "─".repeat(50));
+            println!("💵 Available to Bet: £{:.2}", funds.available_to_bet_balance);
+            println!("📊 Exposure: £{:.2}", funds.exposure);
+            println!("🎯 Exposure Limit: £{:.2}", funds.exposure_limit);
+            println!("💳 Retained Commission: £{:.2}", funds.retained_commission);
+            
+            if let Some(discount_rate) = funds.discount_rate {
+                println!("💸 Discount Rate: {:.2}%", discount_rate);
+            }
+            
+            println!("🎁 Points Balance: {}", funds.points_balance);
+            
+            if let Some(wallet) = &funds.wallet {
+                println!("👛 Wallet: {}", wallet);
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching account funds: {}", e);
+        }
+    }
+    
+    // Also fetch account details
+    println!("\n📋 Fetching account details...\n");
+    match client.get_account_details().await {
+        Ok(details) => {
+            println!("Account Details:");
+            println!("{}", "─".repeat(50));
+            
+            if let Some(currency_code) = &details.currency_code {
+                println!("🌍 Currency: {}", currency_code);
+            }
+            
+            if let Some(country_code) = &details.country_code {
+                println!("🏳️ Country: {}", country_code);
+            }
+            
+            if let Some(timezone) = &details.timezone {
+                println!("🕐 Timezone: {}", timezone);
+            }
+            
+            if let Some(locale_code) = &details.locale_code {
+                println!("🗣️ Locale: {}", locale_code);
+            }
+            
+            if let Some(region) = &details.region {
+                println!("📍 Region: {}", region);
+            }
+            
+            if let Some(first_name) = &details.first_name {
+                println!("👤 First Name: {}", first_name);
+            }
+            
+            if let Some(last_name) = &details.last_name {
+                println!("👤 Last Name: {}", last_name);
+            }
+            
+            if let Some(discount_rate) = details.discount_rate {
+                println!("💸 Discount Rate: {:.2}%", discount_rate);
+            }
+            
+            if let Some(points_balance) = details.points_balance {
+                println!("🎁 Points Balance: {}", points_balance);
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching account details: {}", e);
         }
     }
     

@@ -32,6 +32,7 @@ cargo run --example betfair -- list_events -s 1 -c 10932509          # List even
 cargo run --example betfair -- list_markets -s 1 -e 34433119         # List markets for specific event
 cargo run --example betfair -- list_runners -m 1.241472080        # List runners/selections for specific market
 cargo run --example betfair -- get_odds -m 1.241472080            # Get odds/prices for specific market
+cargo run --example betfair -- get_account                        # Get account funds and details
 
 # Alternative CLI with standard formatting
 cargo run --example cli -- list-sports
@@ -40,6 +41,7 @@ cargo run --example cli -- list-events -s 1 -c 10932509
 cargo run --example cli -- list-markets -s 1 -c 10932509 -e 34433119
 cargo run --example cli -- list-runners -m 1.241472080
 cargo run --example cli -- get-odds -m 1.241472080
+cargo run --example cli -- get-account
 
 ## Other Examples
 cargo run --example streaming
@@ -56,12 +58,12 @@ The library includes two comprehensive CLI tools for browsing Betfair data hiera
 - Enhanced UX with emojis and helpful hints
 - Hierarchical data browsing from sports → competitions → events → markets → odds/runners
 - Parameter-based filtering at each level
-- Commands: `list_sports`, `list_competitions`, `list_events`, `list_markets`, `get_odds`, `list_runners`
+- Commands: `list_sports`, `list_competitions`, `list_events`, `list_markets`, `get_odds`, `list_runners`, `get_account`
 
 ### cli Tool
 - Standard formatting without emojis
 - Same hierarchical browsing capabilities
-- Commands use kebab-case: `list-sports`, `list-competitions`, `list-events`, `list-markets`, `get-odds`, `list-runners`
+- Commands use kebab-case: `list-sports`, `list-competitions`, `list-events`, `list-markets`, `get-odds`, `list-runners`, `get-account`
 
 Both CLIs support:
 - Required sport ID for all filtered queries
@@ -70,6 +72,7 @@ Both CLIs support:
 - Market ID for retrieving live odds/prices and runner details
 - Display of back/lay prices with available liquidity
 - Runner names, handicaps, and metadata for each selection
+- Account information including funds, balances, and user details
 - Automatic sorting and pagination of results
 - Context-aware hints for next steps
 
@@ -156,3 +159,4 @@ openssl pkcs12 -export -out client.pfx -inkey client.key -in client.crt
 
 Uses reqwest 0.9 (older version) for HTTP client - be aware of API differences from modern reqwest when making changes.
 - commands in list commands
+- remember get_account
