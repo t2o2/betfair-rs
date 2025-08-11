@@ -429,4 +429,17 @@ impl BetfairApiClient {
 
         self.list_market_catalogue(request).await
     }
+
+    /// List all available sports (event types)
+    pub async fn list_sports(&self) -> Result<Vec<EventTypeResult>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        self.make_json_rpc_request(
+            BETTING_URL, 
+            "SportsAPING/v1.0/listEventTypes",
+            ListEventTypesRequest {
+                filter: MarketFilter::default(),
+                locale: Some("en".to_string()),
+            }
+        ).await
+    }
 }

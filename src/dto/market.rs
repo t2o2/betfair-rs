@@ -361,3 +361,40 @@ pub struct MarketVersion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListEventTypesRequest {
+    pub filter: MarketFilter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventTypeResult {
+    pub event_type: EventType,
+    pub market_count: i32,
+}
+
+impl Default for MarketFilter {
+    fn default() -> Self {
+        Self {
+            text_query: None,
+            exchange_ids: None,
+            event_type_ids: None,
+            event_ids: None,
+            competition_ids: None,
+            market_ids: None,
+            venues: None,
+            bsp_only: None,
+            turn_in_play_enabled: None,
+            in_play_only: None,
+            market_betting_types: None,
+            market_countries: None,
+            market_type_codes: None,
+            market_start_time: None,
+            with_orders: None,
+        }
+    }
+}
