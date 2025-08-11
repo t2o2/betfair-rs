@@ -222,15 +222,19 @@ pub struct CurrentOrderSummary {
     pub bet_id: String,
     pub market_id: String,
     pub selection_id: i64,
-    pub handicap: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handicap: Option<f64>,
     pub price_size: PriceSize,
-    pub bsp_liability: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bsp_liability: Option<f64>,
     pub side: Side,
     pub status: OrderStatus,
     pub persistence_type: PersistenceType,
     pub order_type: OrderType,
-    pub placed_date: String,
-    pub matched_date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placed_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub average_price_matched: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]

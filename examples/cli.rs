@@ -949,8 +949,8 @@ async fn list_orders(client: &mut BetfairApiClient, market_id: Option<&str>) -> 
                             }
                         }
                         
-                        {
-                            if let Ok(dt) = order.placed_date.parse::<DateTime<Utc>>() {
+                        if let Some(placed_date) = &order.placed_date {
+                            if let Ok(dt) = placed_date.parse::<DateTime<Utc>>() {
                                 println!("                  Placed: {}", dt.format("%Y-%m-%d %H:%M:%S UTC"));
                             }
                         }

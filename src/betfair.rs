@@ -420,7 +420,7 @@ impl BetfairClient {
                     selection_id: order.selection_id,
                     side: order.side,
                     order_status: format!("{:?}", order.status),
-                    placed_date: Some(order.placed_date),
+                    placed_date: order.placed_date,
                     matched_date: None,
                     average_price_matched: order.average_price_matched,
                     size_matched: order.size_matched,
