@@ -13,7 +13,7 @@ pub struct BetfairCredentials {
     pub api_key: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct BetfairConfig {
     pub username: String,
     pub password: String,
@@ -22,7 +22,7 @@ pub struct BetfairConfig {
     pub pfx_password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub betfair: BetfairConfig,
 }

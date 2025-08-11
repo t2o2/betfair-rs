@@ -24,6 +24,9 @@ cargo fmt --check           # Check formatting without changes
 
 # Run examples (requires config.toml with Betfair credentials)
 
+## Dashboard (Interactive Terminal UI)
+cargo run --example dashboard                                     # Launch interactive terminal dashboard
+
 ## CLI Tools (Recommended)
 # Unified CLI with hierarchical filtering
 cargo run --example betfair -- list_sports                             # List all sports
@@ -66,7 +69,25 @@ cargo run --example account
 
 ## CLI Tools
 
-The library includes two comprehensive CLI tools for browsing Betfair data hierarchically:
+The library includes an interactive dashboard and two comprehensive CLI tools for browsing Betfair data:
+
+### Dashboard (Terminal UI)
+- **Interactive terminal dashboard** with real-time market data monitoring
+- Split-screen layout with market browser, order book, active orders, and order entry panels
+- Keyboard navigation with vim-style keybindings (hjkl, Tab to switch panels)
+- Real-time order book display with bid/ask ladder
+- Quick order placement and management
+- Account balance and P&L tracking
+- Connection status indicators
+- Keyboard shortcuts:
+  - `Tab`/`Shift+Tab` - Navigate between panels
+  - `j/k` or `↑/↓` - Move in lists
+  - `Enter` - Select/Confirm
+  - `o` - Order mode
+  - `c` - Cancel order
+  - `r` - Refresh data
+  - `?` - Help
+  - `q` - Quit
 
 ### betfair CLI (Recommended)
 - Enhanced UX with emojis and helpful hints
