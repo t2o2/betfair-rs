@@ -441,10 +441,62 @@ impl App {
     }
     
     async fn place_order(&mut self) -> Result<()> {
+        // Validate inputs first
+        if self.order_market_id.is_empty() {
+            self.error_message = Some("No market selected".to_string());
+            return Ok(());
+        }
+        
+        if self.order_selection_id.is_empty() {
+            self.error_message = Some("No runner selected. Press 1-9 in Order Book to select".to_string());
+            return Ok(());
+        }
+        
+        if self.order_price.is_empty() {
+            self.error_message = Some("Price is required".to_string());
+            return Ok(());
+        }
+        
+        if self.order_size.is_empty() {
+            self.error_message = Some("Stake is required".to_string());
+            return Ok(());
+        }
+        
         if let Some(client) = &mut self.api_client {
-            let price: f64 = self.order_price.parse()?;
-            let size: f64 = self.order_size.parse()?;
-            let selection_id: i64 = self.order_selection_id.parse()?;
+            let price: f64 = match self.order_price.parse() {
+                Ok(p) => p,
+                Err(_) => {
+                    self.error_message = Some("Invalid price format".to_string());
+                    return Ok(());
+                }
+            };
+            
+            let size: f64 = match self.order_size.parse() {
+                Ok(s) => s,
+                Err(_) => {
+                    self.error_message = Some("Invalid stake format".to_string());
+                    return Ok(());
+                }
+            };
+            
+            let selection_id: i64 = match self.order_selection_id.parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    self.error_message = Some(format!("Invalid selection ID: {}", self.order_selection_id));
+                    return Ok(());
+                }
+            };
+            
+            // Validate price and size ranges
+            if price < 1.01 || price > 1000.0 {
+                self.error_message = Some("Price must be between 1.01 and 1000".to_string());
+                return Ok(());
+            }
+            
+            if size < 2.0 {
+                self.error_message = Some("Minimum stake is £2".to_string());
+                return Ok(());
+            }
             
             let instruction = PlaceInstruction {
                 order_type: OrderType::Limit,
@@ -477,16 +529,35 @@ impl App {
             let response = client.place_orders(request).await?;
             
             if response.status == "SUCCESS" {
-                self.status_message = "Order placed successfully".to_string();
+                self.status_message = format!("Order placed: {} £{:.2} @ {:.2} on {}", 
+                    if matches!(self.order_side, Side::Back) { "Back" } else { "Lay" },
+                    size, price, self.order_runner_name);
                 self.load_active_orders().await?;
                 self.load_account_info().await?;
                 
                 // Clear order form
                 self.order_price.clear();
                 self.order_size.clear();
+                self.error_message = None;
             } else {
-                self.error_message = Some(format!("Order failed: {}", response.status));
+                // Check for specific error details
+                let error_detail = if let Some(instruction_reports) = response.instruction_reports {
+                    if let Some(report) = instruction_reports.first() {
+                        if let Some(error_code) = &report.error_code {
+                            format!("{}: {:?}", response.status, error_code)
+                        } else {
+                            format!("{}: Order rejected", response.status)
+                        }
+                    } else {
+                        response.status.clone()
+                    }
+                } else {
+                    response.status.clone()
+                };
+                self.error_message = Some(format!("Order failed: {}", error_detail));
             }
+        } else {
+            self.error_message = Some("Not connected to API".to_string());
         }
         Ok(())
     }
@@ -924,23 +995,32 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(50),  // Status info
+            Constraint::Length(60),  // Status info (increased for error messages)
             Constraint::Min(1),       // Shortcuts
         ])
         .split(area);
     
     // Render status info on the left
-    let status_parts = vec![
+    let mut status_parts = vec![];
+    
+    // Show error or status message first if present
+    if let Some(err) = &app.error_message {
+        status_parts.push(Span::styled(err, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+        status_parts.push(Span::raw(" | "));
+    } else if !app.status_message.is_empty() && app.status_message != "Connected to Betfair" {
+        status_parts.push(Span::styled(&app.status_message, Style::default().fg(Color::Green)));
+        status_parts.push(Span::raw(" | "));
+    }
+    
+    status_parts.extend(vec![
         if app.api_connected {
-            Span::styled("● Connected", Style::default().fg(Color::Green))
+            Span::styled("●", Style::default().fg(Color::Green))
         } else {
-            Span::styled("● Disconnected", Style::default().fg(Color::Red))
+            Span::styled("●", Style::default().fg(Color::Red))
         },
-        Span::raw(" | "),
-        Span::raw(format!("Balance: £{:.2}", app.available_balance)),
-        Span::raw(" | "),
-        Span::raw(format!("Orders: {}", app.total_orders)),
-    ];
+        Span::raw(format!(" £{:.2}", app.available_balance)),
+        Span::raw(format!(" [{} orders]", app.total_orders)),
+    ]);
     
     let status_line = Line::from(status_parts);
     f.render_widget(
@@ -1115,6 +1195,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Char('o') => {
                     app.mode = AppMode::Order;
                     app.active_panel = Panel::OrderEntry;
+                    app.error_message = None;  // Clear any old errors
                 }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     app.load_account_info().await?;
@@ -1314,6 +1395,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Esc => {
                     app.mode = AppMode::Browse;
                     app.active_panel = Panel::MarketBrowser;
+                    app.error_message = None;  // Clear error on exit
                 }
                 KeyCode::Tab => {
                     // Toggle between Price and Size fields
