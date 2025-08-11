@@ -75,7 +75,6 @@ struct Market {
 #[derive(Debug, Clone)]
 struct Runner {
     id: u64,
-    #[allow(dead_code)]
     name: String,
     #[allow(dead_code)]
     status: String,
@@ -101,17 +100,22 @@ struct Order {
 }
 
 #[derive(Debug, Clone)]
-struct OrderBookData {
-    #[allow(dead_code)]
-    market_id: String,
-    #[allow(dead_code)]
-    runner_id: String,
+struct RunnerOrderBook {
+    runner_id: u64,
+    runner_name: String,
     bids: Vec<(f64, f64)>, // (price, size)
     asks: Vec<(f64, f64)>, // (price, size)
     #[allow(dead_code)]
     last_traded: Option<f64>,
     #[allow(dead_code)]
     total_matched: f64,
+}
+
+#[derive(Debug, Clone)]
+struct OrderBookData {
+    #[allow(dead_code)]
+    market_id: String,
+    runners: Vec<RunnerOrderBook>,
 }
 
 struct App {
@@ -130,6 +134,7 @@ struct App {
     
     // Order book state
     current_orderbook: Option<OrderBookData>,
+    selected_runner: Option<usize>,
     
     // Active orders state
     active_orders: Vec<Order>,
@@ -138,6 +143,7 @@ struct App {
     // Order entry state
     order_market_id: String,
     order_selection_id: String,
+    order_runner_name: String,
     order_side: Side,
     order_price: String,
     order_size: String,
@@ -184,12 +190,14 @@ impl App {
             selected_market: None,
             
             current_orderbook: None,
+            selected_runner: None,
             
             active_orders: vec![],
             selected_order: None,
             
             order_market_id: String::new(),
             order_selection_id: String::new(),
+            order_runner_name: String::new(),
             order_side: Side::Back,
             order_price: String::new(),
             order_size: String::new(),
@@ -335,7 +343,9 @@ impl App {
             
             if let Some(market_book) = market_books.first() {
                 if let Some(runners) = &market_book.runners {
-                    if let Some(runner) = runners.first() {
+                    let mut runner_books = vec![];
+                    
+                    for runner in runners {
                         let mut bids = vec![];
                         let mut asks = vec![];
                         
@@ -354,14 +364,31 @@ impl App {
                             }
                         }
                         
-                        self.current_orderbook = Some(OrderBookData {
-                            market_id: market_id.to_string(),
-                            runner_id: runner.selection_id.to_string(),
+                        // Find runner name from our stored markets
+                        let runner_name = self.markets.iter()
+                            .find(|m| m.id == market_id)
+                            .and_then(|m| m.runners.iter().find(|r| r.id as i64 == runner.selection_id))
+                            .map(|r| r.name.clone())
+                            .unwrap_or_else(|| format!("Runner {}", runner.selection_id));
+                        
+                        runner_books.push(RunnerOrderBook {
+                            runner_id: runner.selection_id as u64,
+                            runner_name,
                             bids,
                             asks,
                             last_traded: runner.last_price_traded,
                             total_matched: runner.total_matched.unwrap_or(0.0),
                         });
+                    }
+                    
+                    self.current_orderbook = Some(OrderBookData {
+                        market_id: market_id.to_string(),
+                        runners: runner_books,
+                    });
+                    
+                    // Select first runner by default
+                    if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
+                        self.selected_runner = Some(0);
                     }
                 }
             }
@@ -649,39 +676,86 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     if let Some(orderbook) = &app.current_orderbook {
         let inner = block.inner(area);
         
-        // Create order book display
-        let mut rows = vec![];
-        let max_levels = std::cmp::max(orderbook.bids.len(), orderbook.asks.len());
-        
-        for i in 0..max_levels {
-            let bid_price = orderbook.bids.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
-            let bid_size = orderbook.bids.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
-            let ask_price = orderbook.asks.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
-            let ask_size = orderbook.asks.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
-            
-            rows.push(Row::new(vec![
-                Cell::from(bid_size).style(Style::default().fg(Color::Green)),
-                Cell::from(bid_price).style(Style::default().fg(Color::Green)),
-                Cell::from(ask_price).style(Style::default().fg(Color::Red)),
-                Cell::from(ask_size).style(Style::default().fg(Color::Red)),
-            ]));
+        // Split area into sections for each runner
+        let num_runners = orderbook.runners.len().min(4); // Show max 4 runners
+        if num_runners == 0 {
+            let text = Paragraph::new("No runners available")
+                .block(block)
+                .alignment(Alignment::Center);
+            f.render_widget(text, area);
+            return;
         }
         
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-            ]
-        )
-        .header(Row::new(vec!["Size", "Bid", "Ask", "Size"])
-            .style(Style::default().add_modifier(Modifier::BOLD)))
-        .block(Block::default());
+        let runner_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                (0..num_runners)
+                    .map(|_| Constraint::Ratio(1, num_runners as u32))
+                    .collect::<Vec<_>>()
+            )
+            .split(inner);
+        
+        // Render each runner's orderbook
+        for (idx, (runner, chunk)) in orderbook.runners.iter().zip(runner_chunks.iter()).enumerate() {
+            let is_selected = app.selected_runner == Some(idx);
+            let runner_style = if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            
+            // Create runner header with selection key
+            let key = get_selection_key(idx);
+            let runner_title = format!("[{}] {} (ID: {})", key, runner.runner_name, runner.runner_id);
+            
+            // Create order book rows for this runner
+            let mut rows = vec![];
+            let max_levels = std::cmp::max(runner.bids.len(), runner.asks.len()).min(3); // Show max 3 levels per runner
+            
+            for i in 0..max_levels {
+                let bid_price = runner.bids.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
+                let bid_size = runner.bids.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
+                let ask_price = runner.asks.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
+                let ask_size = runner.asks.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
+                
+                rows.push(Row::new(vec![
+                    Cell::from(bid_size).style(Style::default().fg(Color::Green)),
+                    Cell::from(bid_price).style(Style::default().fg(Color::Green)),
+                    Cell::from(ask_price).style(Style::default().fg(Color::Red)),
+                    Cell::from(ask_size).style(Style::default().fg(Color::Red)),
+                ]));
+            }
+            
+            let runner_block = Block::default()
+                .title(runner_title)
+                .borders(Borders::TOP)
+                .border_style(runner_style);
+            
+            if rows.is_empty() {
+                let no_prices = Paragraph::new("No prices available")
+                    .block(runner_block)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().fg(Color::DarkGray));
+                f.render_widget(no_prices, *chunk);
+            } else {
+                let table = Table::new(
+                    rows,
+                    [
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                    ]
+                )
+                .header(Row::new(vec!["Size", "Back", "Lay", "Size"])
+                    .style(Style::default().add_modifier(Modifier::BOLD)))
+                .block(runner_block);
+                
+                f.render_widget(table, *chunk);
+            }
+        }
         
         f.render_widget(block, area);
-        f.render_widget(table, inner);
     } else {
         let text = Paragraph::new("Select a market to view order book")
             .block(block)
@@ -778,6 +852,7 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(inner);
@@ -785,6 +860,19 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     // Market ID
     let market_text = format!("Market: {}", app.order_market_id);
     f.render_widget(Paragraph::new(market_text), chunks[0]);
+    
+    // Runner selection
+    let runner_text = if app.order_runner_name.is_empty() {
+        "Runner: (Press 1-9 in Order Book to select)".to_string()
+    } else {
+        format!("Runner: {} (ID: {})", app.order_runner_name, app.order_selection_id)
+    };
+    let runner_style = if app.order_runner_name.is_empty() {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+    f.render_widget(Paragraph::new(runner_text).style(runner_style), chunks[1]);
     
     // Side selection
     let side_text = format!("Side: {:?}", app.order_side);
@@ -794,7 +882,7 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(
         Paragraph::new(side_text).style(Style::default().fg(side_color)),
-        chunks[1]
+        chunks[2]
     );
     
     // Price input
@@ -804,7 +892,7 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     } else {
         Style::default()
     };
-    f.render_widget(Paragraph::new(price_text).style(price_style), chunks[2]);
+    f.render_widget(Paragraph::new(price_text).style(price_style), chunks[3]);
     
     // Size input
     let size_text = format!("Stake: £{}", app.order_size);
@@ -813,18 +901,18 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     } else {
         Style::default()
     };
-    f.render_widget(Paragraph::new(size_text).style(size_style), chunks[3]);
+    f.render_widget(Paragraph::new(size_text).style(size_style), chunks[4]);
     
     // Instructions
     let instructions = if is_active {
         "Enter: Place | Tab: Next Field | B/L: Toggle Side | Esc: Cancel"
     } else {
-        "Press 'o' to enter order mode"
+        "Press 'o' to enter order mode | Select runner in Order Book (1-9)"
     };
     f.render_widget(
         Paragraph::new(instructions)
             .style(Style::default().fg(Color::DarkGray)),
-        chunks[4]
+        chunks[5]
     );
     
     f.render_widget(block, area);
@@ -877,6 +965,7 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                 },
                 Panel::OrderBook => {
                     vec![
+                        ("1-9", "Select Runner"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
                         ("r", "Refresh"),
@@ -943,6 +1032,17 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(shortcuts_paragraph, chunks[1]);
 }
 
+fn handle_runner_selection(app: &mut App, index: usize) {
+    if let Some(orderbook) = &app.current_orderbook {
+        if index < orderbook.runners.len() {
+            app.selected_runner = Some(index);
+            let runner = &orderbook.runners[index];
+            app.order_selection_id = runner.runner_id.to_string();
+            app.order_runner_name = runner.runner_name.clone();
+        }
+    }
+}
+
 async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
     // Determine which list we're working with and select the item
     if !app.markets.is_empty() {
@@ -952,11 +1052,18 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
             if let Some(market) = app.markets.get(index) {
                 let market_id = market.id.clone();
                 let order_market_id = market.id.clone();
-                let order_selection_id = market.runners.first().map(|r| r.id.to_string()).unwrap_or_default();
                 
                 app.load_orderbook(&market_id).await?;
                 app.order_market_id = order_market_id;
-                app.order_selection_id = order_selection_id;
+                
+                // Set first runner as default
+                if let Some(orderbook) = &app.current_orderbook {
+                    if let Some(first_runner) = orderbook.runners.first() {
+                        app.order_selection_id = first_runner.runner_id.to_string();
+                        app.order_runner_name = first_runner.runner_name.clone();
+                        app.selected_runner = Some(0);
+                    }
+                }
             }
         }
     } else if !app.events.is_empty() {
@@ -1031,11 +1138,18 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                     if let Some(market) = app.markets.get(index) {
                                         let market_id = market.id.clone();
                                         let order_market_id = market.id.clone();
-                                        let order_selection_id = market.runners.first().map(|r| r.id.to_string()).unwrap_or_default();
                                         
                                         app.load_orderbook(&market_id).await?;
                                         app.order_market_id = order_market_id;
-                                        app.order_selection_id = order_selection_id;
+                                        
+                                        // Set first runner as default
+                                        if let Some(orderbook) = &app.current_orderbook {
+                                            if let Some(first_runner) = orderbook.runners.first() {
+                                                app.order_selection_id = first_runner.runner_id.to_string();
+                                                app.order_runner_name = first_runner.runner_name.clone();
+                                                app.selected_runner = Some(0);
+                                            }
+                                        }
                                     }
                                 }
                             } else if !app.events.is_empty() {
@@ -1106,6 +1220,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 0).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 0 { Some(0) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 0);
                     }
                 }
                 KeyCode::Char('2') => {
@@ -1113,6 +1229,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 1).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 1 { Some(1) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 1);
                     }
                 }
                 KeyCode::Char('3') => {
@@ -1120,6 +1238,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 2).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 2 { Some(2) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 2);
                     }
                 }
                 KeyCode::Char('4') => {
@@ -1127,6 +1247,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 3).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 3 { Some(3) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 3);
                     }
                 }
                 KeyCode::Char('5') => {
@@ -1134,6 +1256,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 4).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 4 { Some(4) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 4);
                     }
                 }
                 KeyCode::Char('6') => {
@@ -1141,6 +1265,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 5).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 5 { Some(5) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 5);
                     }
                 }
                 KeyCode::Char('7') => {
@@ -1148,6 +1274,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 6).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 6 { Some(6) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 6);
                     }
                 }
                 KeyCode::Char('8') => {
@@ -1155,6 +1283,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 7).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 7 { Some(7) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 7);
                     }
                 }
                 KeyCode::Char('9') => {
@@ -1162,6 +1292,8 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, 8).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         app.selected_order = if app.active_orders.len() > 8 { Some(8) } else { None };
+                    } else if app.active_panel == Panel::OrderBook {
+                        handle_runner_selection(app, 8);
                     }
                 }
                 // Letter keys a-z for items 10-35
