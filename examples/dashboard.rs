@@ -5,7 +5,7 @@ use betfair_rs::{
     config::Config,
     dto::{
         MarketFilter, ListMarketCatalogueRequest,
-        common::{Side, OrderType, PersistenceType},
+        common::{Side, OrderType, PersistenceType, MarketProjection},
         account::GetAccountFundsRequest,
         order::{
             PlaceOrdersRequest, PlaceInstruction, LimitOrder,
@@ -97,6 +97,11 @@ struct Order {
     status: String,
     #[allow(dead_code)]
     placed_date: String,
+    // Additional details for display
+    competition_name: String,
+    event_name: String,
+    market_type: String,
+    runner_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -309,7 +314,11 @@ impl App {
             
             let request = ListMarketCatalogueRequest {
                 filter,
-                market_projection: None,
+                market_projection: Some(vec![
+                    MarketProjection::Event,
+                    MarketProjection::RunnerDescription,
+                    MarketProjection::MarketDescription,
+                ]),
                 sort: None,
                 max_results: Some(50),
                 locale: None,
@@ -339,6 +348,34 @@ impl App {
     
     async fn load_orderbook(&mut self, market_id: &str) -> Result<()> {
         if let Some(client) = &mut self.api_client {
+            // First, get the market catalog to ensure we have accurate runner names
+            let filter = MarketFilter {
+                market_ids: Some(vec![market_id.to_string()]),
+                ..Default::default()
+            };
+            let catalog_request = ListMarketCatalogueRequest {
+                filter,
+                market_projection: Some(vec![
+                    MarketProjection::RunnerDescription,
+                    MarketProjection::MarketDescription,
+                ]),
+                sort: None,
+                max_results: Some(1),
+                locale: None,
+            };
+            
+            let mut runner_names = std::collections::HashMap::new();
+            if let Ok(markets) = client.list_market_catalogue(catalog_request).await {
+                if let Some(market) = markets.first() {
+                    if let Some(runners) = &market.runners {
+                        for runner in runners {
+                            runner_names.insert(runner.selection_id, runner.runner_name.clone());
+                        }
+                    }
+                }
+            }
+            
+            // Now get the odds
             let market_books = client.get_odds(market_id.to_string()).await?;
             
             if let Some(market_book) = market_books.first() {
@@ -364,11 +401,15 @@ impl App {
                             }
                         }
                         
-                        // Find runner name from our stored markets
-                        let runner_name = self.markets.iter()
-                            .find(|m| m.id == market_id)
-                            .and_then(|m| m.runners.iter().find(|r| r.id as i64 == runner.selection_id))
-                            .map(|r| r.name.clone())
+                        // Get runner name from our fresh catalog fetch, fallback to stored markets, then to generic name
+                        let runner_name = runner_names.get(&runner.selection_id)
+                            .cloned()
+                            .or_else(|| {
+                                self.markets.iter()
+                                    .find(|m| m.id == market_id)
+                                    .and_then(|m| m.runners.iter().find(|r| r.id as i64 == runner.selection_id))
+                                    .map(|r| r.name.clone())
+                            })
                             .unwrap_or_else(|| format!("Runner {}", runner.selection_id));
                         
                         runner_books.push(RunnerOrderBook {
@@ -421,18 +462,78 @@ impl App {
             };
             
             let response = client.list_current_orders(request).await?;
+            
+            // Collect unique market IDs to fetch market details
+            let market_ids: Vec<String> = response.current_orders
+                .iter()
+                .map(|o| o.market_id.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            
+            // Fetch market details for enrichment
+            let mut market_details = std::collections::HashMap::new();
+            for market_id in market_ids {
+                let filter = MarketFilter {
+                    market_ids: Some(vec![market_id.clone()]),
+                    ..Default::default()
+                };
+                let request = ListMarketCatalogueRequest {
+                    filter,
+                    market_projection: Some(vec![
+                        MarketProjection::Competition,
+                        MarketProjection::Event,
+                        MarketProjection::MarketDescription,
+                        MarketProjection::RunnerDescription,
+                    ]),
+                    sort: None,
+                    max_results: Some(1),
+                    locale: None,
+                };
+                if let Ok(markets) = client.list_market_catalogue(request).await {
+                    if let Some(market) = markets.first() {
+                        market_details.insert(market_id, market.clone());
+                    }
+                }
+            }
+            
             self.active_orders = response.current_orders
                 .into_iter()
-                .map(|o| Order {
-                    bet_id: o.bet_id,
-                    market_id: o.market_id,
-                    selection_id: o.selection_id,
-                    side: o.side,
-                    price: o.price_size.price,
-                    size: o.price_size.size,
-                    size_matched: o.size_matched.unwrap_or(0.0),
-                    status: format!("{:?}", o.status),
-                    placed_date: o.placed_date.unwrap_or_default(),
+                .map(|o| {
+                    let market = market_details.get(&o.market_id);
+                    let competition_name = market
+                        .and_then(|m| m.competition.as_ref())
+                        .map(|c| c.name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let event_name = market
+                        .and_then(|m| m.event.as_ref())
+                        .map(|e| e.name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let market_type = market
+                        .and_then(|m| m.description.as_ref())
+                        .map(|d| d.market_type.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let runner_name = market
+                        .and_then(|m| m.runners.as_ref())
+                        .and_then(|runners| runners.iter().find(|r| r.selection_id == o.selection_id))
+                        .map(|r| r.runner_name.clone())
+                        .unwrap_or_else(|| format!("Runner {}", o.selection_id));
+                    
+                    Order {
+                        bet_id: o.bet_id,
+                        market_id: o.market_id,
+                        selection_id: o.selection_id,
+                        side: o.side,
+                        price: o.price_size.price,
+                        size: o.price_size.size,
+                        size_matched: o.size_matched.unwrap_or(0.0),
+                        status: format!("{:?}", o.status),
+                        placed_date: o.placed_date.unwrap_or_default(),
+                        competition_name,
+                        event_name,
+                        market_type,
+                        runner_name,
+                    }
                 })
                 .collect();
             self.total_orders = self.active_orders.len();
@@ -664,8 +765,27 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::MarketBrowser);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
     
+    // Build breadcrumb
+    let mut breadcrumb = String::from(" Market Browser");
+    if let Some(sport_idx) = app.selected_sport {
+        if let Some((_id, name, _count)) = app.sports.get(sport_idx) {
+            breadcrumb.push_str(&format!(" > {}", name));
+        }
+    }
+    if let Some(comp_idx) = app.selected_competition {
+        if let Some((_id, name, _count)) = app.competitions.get(comp_idx) {
+            breadcrumb.push_str(&format!(" > {}", name));
+        }
+    }
+    if let Some(event_idx) = app.selected_event {
+        if let Some((_id, name, _count)) = app.events.get(event_idx) {
+            breadcrumb.push_str(&format!(" > {}", name));
+        }
+    }
+    breadcrumb.push_str(" ");
+    
     let block = Block::default()
-        .title(" Market Browser (Press key to select) ")
+        .title(breadcrumb)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
@@ -673,33 +793,21 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     
     // Create list items based on current navigation level with selection keys
-    let items: Vec<ListItem> = if app.selected_sport.is_none() {
-        // Show sports
-        app.sports.iter().enumerate().map(|(idx, (_id, name, count))| {
+    // Priority: markets > events > competitions > sports
+    let items: Vec<ListItem> = if !app.markets.is_empty() {
+        // Show markets
+        app.markets.iter().enumerate().map(|(idx, market)| {
             let key = get_selection_key(idx);
-            let is_selected = app.selected_sport == Some(idx);
+            let is_selected = app.selected_market == Some(idx);
             let style = if is_selected {
                 Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
-            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
+            ListItem::new(format!("[{}] {:<28} £{:.0}", key, market.name, market.total_matched))
                 .style(style)
         }).collect()
-    } else if app.selected_competition.is_none() && !app.competitions.is_empty() {
-        // Show competitions
-        app.competitions.iter().enumerate().map(|(idx, (_id, name, count))| {
-            let key = get_selection_key(idx);
-            let is_selected = app.selected_competition == Some(idx);
-            let style = if is_selected {
-                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
-                .style(style)
-        }).collect()
-    } else if app.selected_event.is_none() && !app.events.is_empty() {
+    } else if !app.events.is_empty() {
         // Show events
         app.events.iter().enumerate().map(|(idx, (_id, name, count))| {
             let key = get_selection_key(idx);
@@ -712,17 +820,30 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
             ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
                 .style(style)
         }).collect()
-    } else {
-        // Show markets
-        app.markets.iter().enumerate().map(|(idx, market)| {
+    } else if !app.competitions.is_empty() {
+        // Show competitions
+        app.competitions.iter().enumerate().map(|(idx, (_id, name, count))| {
             let key = get_selection_key(idx);
-            let is_selected = app.selected_market == Some(idx);
+            let is_selected = app.selected_competition == Some(idx);
             let style = if is_selected {
                 Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
-            ListItem::new(format!("[{}] {:<28} £{:.0}", key, market.name, market.total_matched))
+            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
+                .style(style)
+        }).collect()
+    } else {
+        // Show sports (default)
+        app.sports.iter().enumerate().map(|(idx, (_id, name, count))| {
+            let key = get_selection_key(idx);
+            let is_selected = app.selected_sport == Some(idx);
+            let style = if is_selected {
+                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
                 .style(style)
         }).collect()
     };
@@ -738,8 +859,19 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::OrderBook);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
     
+    // Include selected market name in title if available
+    let title = if let Some(market_idx) = app.selected_market {
+        if let Some(market) = app.markets.get(market_idx) {
+            format!(" Order Book - {} ", market.name)
+        } else {
+            " Order Book ".to_string()
+        }
+    } else {
+        " Order Book ".to_string()
+    };
+    
     let block = Block::default()
-        .title(" Order Book ")
+        .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
@@ -775,7 +907,7 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                 Style::default()
             };
             
-            // Create runner header with selection key
+            // Create runner header with selection key - show both name and ID
             let key = get_selection_key(idx);
             let runner_title = format!("[{}] {} (ID: {})", key, runner.runner_name, runner.runner_id);
             
@@ -840,7 +972,7 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
     
     let block = Block::default()
-        .title(format!(" Active Orders ({}) ", app.active_orders.len()))
+        .title(format!(" Active Orders ({}) - Press 'c' to cancel selected ", app.active_orders.len()))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
@@ -856,9 +988,17 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
             
             let key = get_selection_key(index);
             
+            // Truncate long names to fit
+            let comp_name: String = order.competition_name.chars().take(15).collect();
+            let event_name: String = order.event_name.chars().take(20).collect();
+            let runner_name: String = order.runner_name.chars().take(15).collect();
+            
             Row::new(vec![
                 Cell::from(format!("[{}]", key)).style(Style::default().fg(Color::Yellow)),
-                Cell::from(order.bet_id.chars().take(8).collect::<String>()),
+                Cell::from(comp_name),
+                Cell::from(event_name),
+                Cell::from(order.market_type.clone()),
+                Cell::from(runner_name),
                 Cell::from(format!("{:?}", order.side)).style(Style::default().fg(side_color)),
                 Cell::from(format!("{:.2}", order.price)),
                 Cell::from(format!("£{:.2}", order.size)),
@@ -874,16 +1014,19 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(4),
-                Constraint::Length(8),
-                Constraint::Length(5),
-                Constraint::Length(7),
-                Constraint::Length(8),
-                Constraint::Length(8),
-                Constraint::Length(10),
+                Constraint::Length(4),   // Key
+                Constraint::Length(15),  // Competition
+                Constraint::Length(20),  // Event
+                Constraint::Length(12),  // Market Type
+                Constraint::Length(15),  // Runner
+                Constraint::Length(5),   // Side
+                Constraint::Length(7),   // Price
+                Constraint::Length(8),   // Size
+                Constraint::Length(8),   // Matched
+                Constraint::Length(10),  // Status
             ]
         )
-        .header(Row::new(vec!["Key", "ID", "Side", "Price", "Size", "Matched", "Status"])
+        .header(Row::new(vec!["Key", "Competition", "Event", "Market", "Runner", "Side", "Price", "Size", "Matched", "Status"])
             .style(Style::default().add_modifier(Modifier::BOLD)))
         .block(Block::default())
         .highlight_style(
@@ -1055,7 +1198,7 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                 Panel::ActiveOrders => {
                     vec![
                         ("1-9/a-z", "Select"),
-                        ("Enter", "Cancel"),
+                        ("c/Enter", "Cancel"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
                         ("r", "Refresh"),
@@ -1282,17 +1425,37 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 }
                 KeyCode::Backspace | KeyCode::Esc => {
                     // Navigate back in hierarchy
-                    if app.selected_market.is_some() {
-                        app.selected_market = None;
+                    if !app.markets.is_empty() {
+                        // We're viewing markets - go back to events
                         app.markets.clear();
-                    } else if app.selected_event.is_some() {
-                        app.selected_event = None;
+                        app.selected_market = None;
+                        app.current_orderbook = None;
+                        app.order_market_id.clear();
+                        app.status_message = "Back to events".to_string();
+                        // Events should already be loaded, just need to display them
+                    } else if !app.events.is_empty() {
+                        // We're viewing events - go back to competitions
                         app.events.clear();
-                    } else if app.selected_competition.is_some() {
-                        app.selected_competition = None;
+                        app.selected_event = None;
+                        app.status_message = "Back to competitions".to_string();
+                        // Competitions should already be loaded
+                    } else if !app.competitions.is_empty() {
+                        // We're viewing competitions - go back to sports
                         app.competitions.clear();
+                        app.selected_competition = None;
+                        app.status_message = "Back to sports".to_string();
+                        // Sports list remains
                     } else if app.selected_sport.is_some() {
-                        app.selected_sport = None;
+                        // We're at sport level but haven't loaded anything yet
+                        // OR we've come back to sports list
+                        if app.selected_competition.is_some() {
+                            // Clear the selection that might be lingering
+                            app.selected_competition = None;
+                        } else {
+                            // Just deselect the sport
+                            app.selected_sport = None;
+                            app.status_message = "Select a sport".to_string();
+                        }
                     }
                 }
                 // Number keys 1-9 for direct selection
@@ -1377,8 +1540,19 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_runner_selection(app, 8);
                     }
                 }
+                // 'c' key to cancel order in Active Orders panel
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    if app.active_panel == Panel::ActiveOrders {
+                        if let Some(index) = app.selected_order {
+                            let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
+                            if let Some(bet_id) = bet_id {
+                                app.cancel_order(&bet_id).await?;
+                            }
+                        }
+                    }
+                }
                 // Letter keys a-z for items 10-35
-                KeyCode::Char(c) if ('a'..='z').contains(&c) => {
+                KeyCode::Char(c) if ('a'..='z').contains(&c) && c != 'c' => {
                     if app.active_panel == Panel::MarketBrowser {
                         let index = 9 + (c as usize - 'a' as usize);
                         handle_direct_selection(app, index).await?;
