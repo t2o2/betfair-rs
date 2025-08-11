@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::dto::*;
+use crate::dto::rpc::LoginResponse;
 use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
 use anyhow::Result;
@@ -79,8 +80,8 @@ impl BetfairApiClient {
             })
             .await?;
 
-        if let Some(ref token) = response.session_token {
-            self.session_token = Some(token.clone());
+        if response.login_status == "SUCCESS" {
+            self.session_token = Some(response.session_token.clone());
         }
 
         Ok(response)
@@ -157,7 +158,9 @@ impl BetfairApiClient {
                     }
 
                     let json_response: JsonRpcResponse<U> = serde_json::from_str(&response_text)?;
-                    Ok(json_response.result)
+                    json_response.result.ok_or_else(|| {
+                        anyhow::anyhow!("No result in response: {:?}", json_response.error)
+                    })
                 }
             })
             .await
@@ -370,7 +373,7 @@ impl BetfairApiClient {
         let request = ListMarketBookRequest {
             market_ids,
             price_projection: Some(PriceProjectionDto {
-                price_data: Some(vec![PriceProjection::ExBestOffers]),
+                price_data: Some(vec![PriceData::ExBestOffers]),
                 ex_best_offers_overrides: None,
                 virtualise: None,
                 rollover_stakes: None,

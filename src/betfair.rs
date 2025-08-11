@@ -1,11 +1,13 @@
-use crate::account::{AccountFundsResponse, GetAccountFundsRequest, GetAccountFundsResponse};
-use crate::config::Config;
-use crate::msg_model::LoginResponse;
-use crate::order::{
-    CancelInstruction, CancelOrdersRequest, CancelOrdersResponse, JsonRpcRequest, JsonRpcResponse,
+use crate::dto::{
+    GetAccountFundsRequest, GetAccountFundsResponse, AccountFundsResponse,
+    CancelInstruction, CancelOrdersRequest, CancelOrdersResponse, 
+    JsonRpcRequest, JsonRpcResponse,
     ListClearedOrdersRequest, ListClearedOrdersResponse, ListCurrentOrdersRequest,
-    ListCurrentOrdersResponse, Order, OrderStatusResponse, PlaceOrdersRequest, PlaceOrdersResponse,
+    ListCurrentOrdersResponse, PlaceOrdersRequest, PlaceOrdersResponse,
+    Order, OrderStatusResponse, Side,
 };
+use crate::dto::rpc::LoginResponse;
+use crate::config::Config;
 use crate::orderbook::Orderbook;
 use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
@@ -88,9 +90,10 @@ impl BetfairClient {
                         .send()?
                         .json()?;
 
-                    match response.session_token {
-                        Some(token) => Ok(token),
-                        None => Err(anyhow::anyhow!("loginStatus: {}", response.login_status)),
+                    if response.login_status == "SUCCESS" {
+                        Ok(response.session_token)
+                    } else {
+                        Err(anyhow::anyhow!("loginStatus: {}", response.login_status))
                     }
                 }
             })
@@ -240,7 +243,9 @@ impl BetfairClient {
                     }
 
                     let raw_response: JsonRpcResponse<U> = serde_json::from_str(&response_text)?;
-                    Ok(raw_response.result)
+                    raw_response.result.ok_or_else(|| {
+                        anyhow::anyhow!("No result in response: {:?}", raw_response.error)
+                    })
                 }
             })
             .await
@@ -287,6 +292,10 @@ impl BetfairClient {
         let request = PlaceOrdersRequest {
             market_id: order.market_id.clone(),
             instructions: vec![order.to_place_instruction()],
+            customer_ref: None,
+            market_version: None,
+            customer_strategy_ref: None,
+            async_: None,
         };
         self.make_betting_request("placeOrders", request).await
     }
@@ -298,7 +307,11 @@ impl BetfairClient {
     ) -> Result<CancelOrdersResponse> {
         let request = CancelOrdersRequest {
             market_id,
-            instructions: vec![CancelInstruction { bet_id }],
+            instructions: vec![CancelInstruction { 
+                bet_id,
+                size_reduction: None,
+            }],
+            customer_ref: None,
         };
         self.make_betting_request("cancelOrders", request).await
     }
@@ -312,7 +325,8 @@ impl BetfairClient {
             bet_ids,
             market_ids,
             order_projection: None,
-            placed_date_range: None,
+            customer_order_refs: None,
+            customer_strategy_refs: None,
             date_range: None,
             order_by: None,
             sort_dir: None,
@@ -333,16 +347,19 @@ impl BetfairClient {
 
         for status in statuses {
             let request = ListClearedOrdersRequest {
-                bet_status: status.to_string(),
+                bet_status: Some(status.to_string()),
                 event_type_ids: None,
                 event_ids: None,
                 market_ids: None,
                 runner_ids: None,
                 bet_ids: bet_ids.as_ref().cloned(),
+                customer_order_refs: None,
+                customer_strategy_refs: None,
                 side: None,
                 settled_date_range: None,
                 group_by: None,
                 include_item_description: None,
+                locale: None,
                 from_record: None,
                 record_count: None,
             };
@@ -375,9 +392,9 @@ impl BetfairClient {
             exposure: response.exposure,
             retained_commission: response.retained_commission,
             exposure_limit: response.exposure_limit,
-            discount_rate: response.discount_rate,
-            points_balance: response.points_balance,
-            wallet: response.wallet,
+            discount_rate: Some(response.discount_rate),
+            points_balance: response.points_balance as i32,
+            wallet: Some(response.wallet),
         })
     }
 
@@ -393,7 +410,7 @@ impl BetfairClient {
             .list_current_orders(Some(remaining_bet_ids.clone()), None)
             .await?;
 
-        for order in current_orders.orders {
+        for order in current_orders.current_orders {
             let bet_id = order.bet_id.clone();
             results.insert(
                 bet_id.clone(),
@@ -402,18 +419,16 @@ impl BetfairClient {
                     market_id: order.market_id,
                     selection_id: order.selection_id,
                     side: order.side,
-                    order_status: order.status,
+                    order_status: format!("{:?}", order.status),
                     placed_date: Some(order.placed_date),
                     matched_date: None,
-                    average_price_matched: Some(order.average_price_matched),
-                    size_matched: Some(order.size_matched),
-                    size_remaining: Some(order.size_remaining),
-                    size_lapsed: Some(order.size_lapsed),
-                    size_cancelled: Some(order.size_cancelled),
-                    size_voided: Some(order.size_voided),
-                    price_requested: Some(order.price_size.price),
-                    price_reduced: None,
-                    persistence_type: Some(order.persistence_type),
+                    average_price_matched: order.average_price_matched,
+                    size_matched: order.size_matched,
+                    size_remaining: order.size_remaining,
+                    size_lapsed: order.size_lapsed,
+                    size_cancelled: order.size_cancelled,
+                    size_voided: order.size_voided,
+                    profit: None,
                 },
             );
             // Remove found bet_id from remaining list
@@ -425,28 +440,27 @@ impl BetfairClient {
             let cleared_orders = self.list_cleared_orders(Some(remaining_bet_ids)).await?;
 
             for order in cleared_orders.cleared_orders {
-                let bet_id = order.bet_id.clone();
+                if let Some(bet_id) = order.bet_id.clone() {
                 results.insert(
                     bet_id.clone(),
                     OrderStatusResponse {
-                        bet_id,
-                        market_id: order.market_id,
-                        selection_id: order.selection_id,
-                        side: order.side,
+                        bet_id: bet_id.clone(),
+                        market_id: order.market_id.unwrap_or_default(),
+                        selection_id: order.selection_id.unwrap_or(0),
+                        side: order.side.unwrap_or(Side::Back),
                         order_status: "SETTLED".to_string(),
-                        placed_date: Some(order.placed_date),
-                        matched_date: Some(order.settled_date),
-                        average_price_matched: None,
-                        size_matched: None,
+                        placed_date: order.placed_date,
+                        matched_date: order.settled_date,
+                        average_price_matched: order.price_matched,
+                        size_matched: order.size_settled,
                         size_remaining: None,
                         size_lapsed: None,
-                        size_cancelled: None,
+                        size_cancelled: order.size_cancelled,
                         size_voided: None,
-                        price_requested: Some(order.price_requested),
-                        price_reduced: None,
-                        persistence_type: Some(order.persistence_type),
+                        profit: order.profit,
                     },
                 );
+                }
             }
         }
 

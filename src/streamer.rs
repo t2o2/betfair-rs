@@ -404,7 +404,8 @@ impl BetfairStreamer {
                 .entry(market_id.clone())
                 .or_default();
 
-            for runner_change in market_change.runner_changes {
+            if let Some(runner_changes) = market_change.runner_changes {
+                for runner_change in runner_changes {
                 let runner_id = runner_change.id.to_string();
                 let orderbook = market_orderbooks
                     .entry(runner_id.clone())
@@ -433,6 +434,7 @@ impl BetfairStreamer {
                 orderbook.set_ts(market_change_message.pt);
                 debug!("Orderbook for runner {}:", runner_id);
                 debug!("\n{}", orderbook.pretty_print());
+                }
             }
 
             if let Some(callback) = &self.orderbook_callback {
