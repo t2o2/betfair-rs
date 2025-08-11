@@ -392,6 +392,40 @@ impl BetfairApiClient {
         self.list_market_book(request).await
     }
 
+    /// Get odds for a specific market with full price ladder
+    pub async fn get_odds(&self, market_id: String) -> Result<Vec<MarketBook>> {
+        let request = ListMarketBookRequest {
+            market_ids: vec![market_id],
+            price_projection: Some(PriceProjectionDto {
+                price_data: Some(vec![
+                    PriceData::ExBestOffers,
+                    PriceData::ExAllOffers,
+                    PriceData::ExTraded,
+                ]),
+                ex_best_offers_overrides: Some(ExBestOffersOverrides {
+                    best_prices_depth: Some(3),
+                    rollup_model: Some("STAKE".to_string()),
+                    rollup_limit: None,
+                    rollup_liability_threshold: None,
+                    rollup_liability_factor: None,
+                }),
+                virtualise: Some(true),
+                rollover_stakes: Some(false),
+            }),
+            order_projection: None,
+            match_projection: None,
+            include_overall_position: None,
+            partition_matched_by_strategy_ref: None,
+            customer_strategy_refs: None,
+            currency_code: None,
+            locale: None,
+            matched_since: None,
+            bet_ids: None,
+        };
+
+        self.list_market_book(request).await
+    }
+
     /// Search markets by text
     pub async fn search_markets(
         &self,
@@ -504,5 +538,33 @@ impl BetfairApiClient {
                 locale: Some("en".to_string()),
             }
         ).await
+    }
+
+    /// List runners for a specific market
+    /// 
+    /// # Arguments
+    /// * `market_id` - The market ID to get runners for
+    /// 
+    /// # Returns
+    /// Returns the market catalogue with runner information including names, IDs, and metadata
+    pub async fn list_runners(&self, market_id: &str) -> Result<Vec<MarketCatalogue>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        let request = ListMarketCatalogueRequest {
+            filter: MarketFilter {
+                market_ids: Some(vec![market_id.to_string()]),
+                ..Default::default()
+            },
+            market_projection: Some(vec![
+                MarketProjection::RunnerDescription,
+                MarketProjection::RunnerMetadata,
+                MarketProjection::Event,
+                MarketProjection::MarketDescription,
+            ]),
+            sort: None,
+            max_results: Some(1),
+            locale: Some("en".to_string()),
+        };
+        
+        self.list_market_catalogue(request).await
     }
 }

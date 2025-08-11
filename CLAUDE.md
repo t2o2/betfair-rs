@@ -31,6 +31,7 @@ cargo run --example betfair -- list_competitions -s 1                  # List co
 cargo run --example betfair -- list_events -s 1 -c 10932509          # List events for Premier League
 cargo run --example betfair -- list_markets -s 1 -e 34433119         # List markets for specific event
 cargo run --example betfair -- get_odds -m 1.241472080            # Get odds/prices for specific market
+cargo run --example betfair -- list_runners -m 1.241472080        # List runners/selections for specific market
 
 # Alternative CLI with standard formatting
 cargo run --example cli -- list-sports
@@ -38,6 +39,7 @@ cargo run --example cli -- list-competitions -s 1
 cargo run --example cli -- list-events -s 1 -c 10932509
 cargo run --example cli -- list-markets -s 1 -c 10932509 -e 34433119
 cargo run --example cli -- get-odds -m 1.241472080
+cargo run --example cli -- list-runners -m 1.241472080
 
 ## Other Examples
 cargo run --example streaming
@@ -52,21 +54,22 @@ The library includes two comprehensive CLI tools for browsing Betfair data hiera
 
 ### betfair CLI (Recommended)
 - Enhanced UX with emojis and helpful hints
-- Hierarchical data browsing from sports → competitions → events → markets → odds
+- Hierarchical data browsing from sports → competitions → events → markets → odds/runners
 - Parameter-based filtering at each level
-- Commands: `list_sports`, `list_competitions`, `list_events`, `list_markets`, `get_odds`
+- Commands: `list_sports`, `list_competitions`, `list_events`, `list_markets`, `get_odds`, `list_runners`
 
 ### cli Tool
 - Standard formatting without emojis
 - Same hierarchical browsing capabilities
-- Commands use kebab-case: `list-sports`, `list-competitions`, `list-events`, `list-markets`, `get-odds`
+- Commands use kebab-case: `list-sports`, `list-competitions`, `list-events`, `list-markets`, `get-odds`, `list-runners`
 
 Both CLIs support:
 - Required sport ID for all filtered queries
 - Optional competition ID for events and markets
 - Optional event ID for markets
-- Market ID for retrieving live odds and prices
+- Market ID for retrieving live odds/prices and runner details
 - Display of back/lay prices with available liquidity
+- Runner names, handicaps, and metadata for each selection
 - Automatic sorting and pagination of results
 - Context-aware hints for next steps
 

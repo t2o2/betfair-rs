@@ -1,0 +1,664 @@
+use anyhow::Result;
+use betfair_rs::{api_client::BetfairApiClient, config::Config, dto::{MarketFilter, ListMarketCatalogueRequest, common::MarketStatus}};
+use clap::{Parser, Subcommand};
+use chrono::{DateTime, Utc};
+
+#[derive(Parser)]
+#[command(name = "betfair")]
+#[command(about = "Betfair API CLI - Hierarchical data browsing", long_about = None)]
+#[command(after_help = "EXAMPLES:
+    # List all available sports with market counts
+    cargo run --example betfair -- list_sports
+
+    # List competitions for Soccer (sport ID 1)
+    cargo run --example betfair -- list_competitions -s 1
+    
+    # List competitions for Tennis (sport ID 2)
+    cargo run --example betfair -- list_competitions -s 2
+
+    # List all events for Soccer
+    cargo run --example betfair -- list_events -s 1
+    
+    # List events for Premier League (competition 10932509)
+    cargo run --example betfair -- list_events -s 1 -c 10932509
+
+    # List all markets for Soccer
+    cargo run --example betfair -- list_markets -s 1
+    
+    # List markets for a specific competition
+    cargo run --example betfair -- list_markets -s 1 -c 10932509
+    
+    # List markets for a specific event
+    cargo run --example betfair -- list_markets -s 1 -e 34433119
+    
+    # List markets with both competition and event filters
+    cargo run --example betfair -- list_markets -s 1 -c 10932509 -e 34433119
+    
+    # Get odds for a specific market
+    cargo run --example betfair -- get_odds -m 1.234567890
+    
+    # List runners for a specific market
+    cargo run --example betfair -- list_runners -m 1.234567890
+
+COMMON SPORT IDs:
+    1  - Soccer
+    2  - Tennis  
+    4  - Cricket
+    5  - Rugby Union
+    6  - Boxing
+    7  - Horse Racing
+    8  - Motor Sport
+    
+NOTE: 
+    Create a config.toml file with your Betfair credentials before running.
+    See README.md for configuration details.")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// List all sports
+    #[command(name = "list_sports")]
+    ListSports,
+    
+    /// List competitions for a sport
+    #[command(name = "list_competitions")]
+    ListCompetitions {
+        /// Sport ID (use list_sports to find IDs)
+        #[arg(short, long)]
+        sport: String,
+    },
+    
+    /// List events with optional filters
+    #[command(name = "list_events")]
+    ListEvents {
+        /// Sport ID (required)
+        #[arg(short, long)]
+        sport: String,
+        
+        /// Competition ID (optional - filters to specific competition)
+        #[arg(short, long)]
+        competition: Option<String>,
+    },
+    
+    /// List markets with optional filters
+    #[command(name = "list_markets")]
+    ListMarkets {
+        /// Sport ID (required)
+        #[arg(short, long)]
+        sport: String,
+        
+        /// Competition ID (optional - filters to specific competition)
+        #[arg(short, long)]
+        competition: Option<String>,
+        
+        /// Event ID (optional - filters to specific event)
+        #[arg(short, long)]
+        event: Option<String>,
+    },
+    
+    /// Get odds for a specific market
+    #[command(name = "get_odds")]
+    GetOdds {
+        /// Market ID (use list_markets to find IDs)
+        #[arg(short, long)]
+        market: String,
+    },
+    
+    /// List runners for a specific market
+    #[command(name = "list_runners")]
+    ListRunners {
+        /// Market ID (use list_markets to find IDs)
+        #[arg(short, long)]
+        market: String,
+    },
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    
+    // Load configuration
+    let config = Config::new()?;
+    
+    // Create API client
+    let mut client = BetfairApiClient::new(config);
+    
+    // Login
+    println!("🔐 Logging in to Betfair...");
+    let login_response = client.login().await?;
+    
+    if login_response.login_status != "SUCCESS" {
+        eprintln!("❌ Login failed: {}", login_response.login_status);
+        return Ok(());
+    }
+    
+    println!("✅ Login successful!\n");
+    
+    match cli.command {
+        Commands::ListSports => {
+            list_sports(&mut client).await?;
+        }
+        Commands::ListCompetitions { sport } => {
+            list_competitions(&mut client, &sport).await?;
+        }
+        Commands::ListEvents { sport, competition } => {
+            list_events(&mut client, &sport, competition).await?;
+        }
+        Commands::ListMarkets { sport, competition, event } => {
+            list_markets(&mut client, &sport, competition, event).await?;
+        }
+        Commands::GetOdds { market } => {
+            get_odds(&mut client, &market).await?;
+        }
+        Commands::ListRunners { market } => {
+            list_runners(&mut client, &market).await?;
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_sports(client: &mut BetfairApiClient) -> Result<()> {
+    println!("📋 Fetching all sports...\n");
+    
+    match client.list_sports(None).await {
+        Ok(mut sports) => {
+            // Sort by market count descending
+            sports.sort_by(|a, b| b.market_count.cmp(&a.market_count));
+            
+            println!("Found {} sports:\n", sports.len());
+            println!("{:<10} {:<30} {:<15}", "ID", "Name", "Market Count");
+            println!("{}", "─".repeat(60));
+            
+            for sport in sports.iter().filter(|s| s.market_count > 0) {
+                println!(
+                    "{:<10} {:<30} {:<15}", 
+                    sport.event_type.id, 
+                    sport.event_type.name,
+                    sport.market_count
+                );
+            }
+            
+            println!("\n💡 Use: betfair list_competitions -s [SPORT_ID] to explore competitions");
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching sports: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_competitions(client: &mut BetfairApiClient, sport_id: &str) -> Result<()> {
+    // Get sport name
+    let sports = client.list_sports(None).await?;
+    let sport_name = sports
+        .iter()
+        .find(|s| s.event_type.id == sport_id)
+        .map(|s| s.event_type.name.clone())
+        .unwrap_or_else(|| format!("Sport ID {}", sport_id));
+    
+    println!("🏆 Fetching competitions for: {} (ID: {})\n", sport_name, sport_id);
+    
+    let filter = MarketFilter {
+        event_type_ids: Some(vec![sport_id.to_string()]),
+        ..Default::default()
+    };
+    
+    match client.list_competitions(Some(filter)).await {
+        Ok(mut competitions) => {
+            if competitions.is_empty() {
+                println!("No competitions found for {}.", sport_name);
+            } else {
+                // Sort by market count (descending)
+                competitions.sort_by(|a, b| b.market_count.cmp(&a.market_count));
+                
+                println!("Found {} competitions:\n", competitions.len());
+                println!("{:<12} {:<45} {:<15} {:<10}", "ID", "Name", "Region", "Markets");
+                println!("{}", "─".repeat(85));
+                
+                let display_count = std::cmp::min(30, competitions.len());
+                for comp in competitions.iter().take(display_count) {
+                    let name = if comp.competition.name.len() > 44 {
+                        format!("{}...", comp.competition.name.chars().take(41).collect::<String>())
+                    } else {
+                        comp.competition.name.clone()
+                    };
+                    
+                    println!(
+                        "{:<12} {:<45} {:<15} {:<10}", 
+                        comp.competition.id,
+                        name,
+                        comp.competition_region.as_ref().unwrap_or(&"International".to_string()),
+                        comp.market_count
+                    );
+                }
+                
+                if competitions.len() > display_count {
+                    println!("\n... and {} more competitions", competitions.len() - display_count);
+                }
+                
+                println!("\n💡 Use: betfair list_events -s {} -c [COMPETITION_ID] to filter events", sport_id);
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching competitions: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_events(client: &mut BetfairApiClient, sport_id: &str, competition_id: Option<String>) -> Result<()> {
+    // Get sport name
+    let sports = client.list_sports(None).await?;
+    let sport_name = sports
+        .iter()
+        .find(|s| s.event_type.id == sport_id)
+        .map(|s| s.event_type.name.clone())
+        .unwrap_or_else(|| format!("Sport ID {}", sport_id));
+    
+    let mut filter = MarketFilter {
+        event_type_ids: Some(vec![sport_id.to_string()]),
+        ..Default::default()
+    };
+    
+    let mut title = format!("📅 Events for: {} (ID: {})", sport_name, sport_id);
+    
+    // Add competition filter if provided
+    if let Some(comp_id) = &competition_id {
+        filter.competition_ids = Some(vec![comp_id.clone()]);
+        
+        // Get competition name
+        let comp_filter = MarketFilter {
+            event_type_ids: Some(vec![sport_id.to_string()]),
+            ..Default::default()
+        };
+        let competitions = client.list_competitions(Some(comp_filter)).await?;
+        if let Some(comp) = competitions.iter().find(|c| c.competition.id == *comp_id) {
+            title = format!("📅 Events for: {} - {} (Competition ID: {})", 
+                          sport_name, comp.competition.name, comp_id);
+        }
+    }
+    
+    println!("{}\n", title);
+    
+    match client.list_events(Some(filter)).await {
+        Ok(mut events) => {
+            if events.is_empty() {
+                println!("No events found.");
+                if competition_id.is_none() {
+                    println!("💡 Try adding a competition filter: betfair list_events -s {} -c [COMPETITION_ID]", sport_id);
+                }
+            } else {
+                // Sort by open date
+                events.sort_by(|a, b| {
+                    match (&a.event.open_date, &b.event.open_date) {
+                        (Some(a_date), Some(b_date)) => a_date.cmp(b_date),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                });
+                
+                println!("Found {} events:\n", events.len());
+                println!("{:<12} {:<45} {:<18} {:<8} {:<8}", "Event ID", "Name", "Date/Time", "Country", "Markets");
+                println!("{}", "─".repeat(95));
+                
+                let display_count = std::cmp::min(50, events.len());
+                for event in events.iter().take(display_count) {
+                    let name = if event.event.name.len() > 44 {
+                        format!("{}...", event.event.name.chars().take(41).collect::<String>())
+                    } else {
+                        event.event.name.clone()
+                    };
+                    
+                    let open_date = event.event.open_date
+                        .as_ref()
+                        .map(|d| {
+                            if let Ok(dt) = d.parse::<DateTime<Utc>>() {
+                                dt.format("%m-%d %H:%M").to_string()
+                            } else {
+                                d.chars().take(16).collect()
+                            }
+                        })
+                        .unwrap_or_else(|| "-".to_string());
+                    
+                    println!(
+                        "{:<12} {:<45} {:<18} {:<8} {:<8}", 
+                        event.event.id,
+                        name,
+                        open_date,
+                        event.event.country_code.as_ref().unwrap_or(&"-".to_string()),
+                        event.market_count
+                    );
+                }
+                
+                if events.len() > display_count {
+                    println!("\n... and {} more events", events.len() - display_count);
+                }
+                
+                let example_event = events.first().map(|e| &e.event.id);
+                if let Some(event_id) = example_event {
+                    println!("\n💡 Use: betfair list_markets -s {} -e {} to see markets for an event", sport_id, event_id);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching events: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_markets(client: &mut BetfairApiClient, sport_id: &str, competition_id: Option<String>, event_id: Option<String>) -> Result<()> {
+    // Get sport name
+    let sports = client.list_sports(None).await?;
+    let sport_name = sports
+        .iter()
+        .find(|s| s.event_type.id == sport_id)
+        .map(|s| s.event_type.name.clone())
+        .unwrap_or_else(|| format!("Sport ID {}", sport_id));
+    
+    let mut filter = MarketFilter {
+        event_type_ids: Some(vec![sport_id.to_string()]),
+        ..Default::default()
+    };
+    
+    let mut title = format!("📊 Markets for: {}", sport_name);
+    
+    // Add competition filter if provided
+    if let Some(comp_id) = &competition_id {
+        filter.competition_ids = Some(vec![comp_id.clone()]);
+    }
+    
+    // Add event filter if provided (most specific)
+    if let Some(ev_id) = &event_id {
+        filter.event_ids = Some(vec![ev_id.clone()]);
+        
+        // Get event name
+        let event_filter = MarketFilter {
+            event_ids: Some(vec![ev_id.clone()]),
+            ..Default::default()
+        };
+        let events = client.list_events(Some(event_filter)).await?;
+        if let Some(event) = events.first() {
+            title = format!("📊 Markets for: {}", event.event.name);
+        }
+    }
+    
+    println!("{}\n", title);
+    
+    let request = ListMarketCatalogueRequest {
+        filter,
+        market_projection: None,
+        sort: None,
+        max_results: Some(100),
+        locale: None,
+    };
+    
+    match client.list_market_catalogue(request).await {
+        Ok(markets) => {
+            if markets.is_empty() {
+                println!("No markets found.");
+                if event_id.is_none() && competition_id.is_none() {
+                    println!("💡 Try adding filters:");
+                    println!("   betfair list_markets -s {} -c [COMPETITION_ID]", sport_id);
+                    println!("   betfair list_markets -s {} -e [EVENT_ID]", sport_id);
+                }
+            } else {
+                println!("Found {} markets:\n", markets.len());
+                println!("{:<18} {:<45} {:<18} {:<10}", "Market ID", "Market Name", "Start Time", "Runners");
+                println!("{}", "─".repeat(95));
+                
+                let display_count = std::cmp::min(50, markets.len());
+                for market in markets.iter().take(display_count) {
+                    let name = if market.market_name.len() > 44 {
+                        format!("{}...", market.market_name.chars().take(41).collect::<String>())
+                    } else {
+                        market.market_name.clone()
+                    };
+                    
+                    let start_time = market.market_start_time
+                        .as_ref()
+                        .map(|d| {
+                            if let Ok(dt) = d.parse::<DateTime<Utc>>() {
+                                dt.format("%m-%d %H:%M").to_string()
+                            } else {
+                                d.chars().take(16).collect()
+                            }
+                        })
+                        .unwrap_or_else(|| "-".to_string());
+                    
+                    let runner_count = market.runners
+                        .as_ref()
+                        .map(|r| r.len().to_string())
+                        .unwrap_or_else(|| "-".to_string());
+                    
+                    println!(
+                        "{:<18} {:<45} {:<18} {:<10}", 
+                        market.market_id,
+                        name,
+                        start_time,
+                        runner_count
+                    );
+                }
+                
+                if markets.len() > display_count {
+                    println!("\n... and {} more markets", markets.len() - display_count);
+                }
+                
+                println!("\n💡 Market IDs can be used for placing orders or streaming market data");
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching markets: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn get_odds(client: &mut BetfairApiClient, market_id: &str) -> Result<()> {
+    println!("📈 Fetching odds for market: {}\n", market_id);
+    
+    match client.get_odds(market_id.to_string()).await {
+        Ok(market_books) => {
+            if market_books.is_empty() {
+                println!("No market data found for ID: {}", market_id);
+                return Ok(());
+            }
+            
+            let market = &market_books[0];
+            
+            // Display market info
+            println!("Market Status: {:?}", market.status.as_ref().unwrap_or(&MarketStatus::Open));
+            println!("In-Play: {}", market.inplay.unwrap_or(false));
+            println!("Total Matched: £{:.2}", market.total_matched.unwrap_or(0.0));
+            println!("Total Available: £{:.2}", market.total_available.unwrap_or(0.0));
+            
+            if let Some(runners) = &market.runners {
+                println!("\n{:<12} {:<30} {:<10} {:<12} {:<12} {:<12}", 
+                    "Selection ID", "Runner", "Status", "Last Traded", "Back Price", "Lay Price");
+                println!("{}", "─".repeat(90));
+                
+                for runner in runners {
+                    let last_price = runner.last_price_traded
+                        .map(|p| format!("{:.2}", p))
+                        .unwrap_or_else(|| "-".to_string());
+                    
+                    let (back_price, back_size) = if let Some(ex) = &runner.ex {
+                        if let Some(back_prices) = &ex.available_to_back {
+                            if !back_prices.is_empty() {
+                                (
+                                    format!("{:.2}", back_prices[0].price),
+                                    format!("£{:.0}", back_prices[0].size)
+                                )
+                            } else {
+                                ("-".to_string(), "-".to_string())
+                            }
+                        } else {
+                            ("-".to_string(), "-".to_string())
+                        }
+                    } else {
+                        ("-".to_string(), "-".to_string())
+                    };
+                    
+                    let (lay_price, lay_size) = if let Some(ex) = &runner.ex {
+                        if let Some(lay_prices) = &ex.available_to_lay {
+                            if !lay_prices.is_empty() {
+                                (
+                                    format!("{:.2}", lay_prices[0].price),
+                                    format!("£{:.0}", lay_prices[0].size)
+                                )
+                            } else {
+                                ("-".to_string(), "-".to_string())
+                            }
+                        } else {
+                            ("-".to_string(), "-".to_string())
+                        }
+                    } else {
+                        ("-".to_string(), "-".to_string())
+                    };
+                    
+                    println!("{:<12} {:<30} {:<10} {:<12} {:<6} ({:<6}) {:<6} ({:<6})",
+                        runner.selection_id,
+                        format!("Runner {}", runner.selection_id), // Can be enhanced with runner names if available
+                        format!("{:?}", runner.status),
+                        last_price,
+                        back_price,
+                        back_size,
+                        lay_price,
+                        lay_size
+                    );
+                    
+                    // Show additional price levels if available
+                    if let Some(ex) = &runner.ex {
+                        let mut price_levels = Vec::new();
+                        
+                        if let Some(back_prices) = &ex.available_to_back {
+                            for (i, price_size) in back_prices.iter().skip(1).take(2).enumerate() {
+                                if i == 0 {
+                                    price_levels.push(format!("                                                           Back: {:.2} (£{:.0})", 
+                                        price_size.price, price_size.size));
+                                } else {
+                                    price_levels.push(format!("                                                                 {:.2} (£{:.0})", 
+                                        price_size.price, price_size.size));
+                                }
+                            }
+                        }
+                        
+                        if let Some(lay_prices) = &ex.available_to_lay {
+                            for (i, price_size) in lay_prices.iter().skip(1).take(2).enumerate() {
+                                if i == 0 && price_levels.is_empty() {
+                                    price_levels.push(format!("                                                                             Lay: {:.2} (£{:.0})", 
+                                        price_size.price, price_size.size));
+                                } else if i == 0 {
+                                    price_levels[0] = format!("{}  Lay: {:.2} (£{:.0})", 
+                                        price_levels[0], price_size.price, price_size.size);
+                                } else if i < price_levels.len() {
+                                    price_levels[i] = format!("{}       {:.2} (£{:.0})", 
+                                        price_levels[i], price_size.price, price_size.size);
+                                } else {
+                                    price_levels.push(format!("                                                                                  {:.2} (£{:.0})", 
+                                        price_size.price, price_size.size));
+                                }
+                            }
+                        }
+                        
+                        for level in price_levels {
+                            println!("{}", level);
+                        }
+                    }
+                }
+                
+                println!("\n💡 Use selection IDs to place orders on specific runners");
+            } else {
+                println!("No runner data available");
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching odds: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_runners(client: &mut BetfairApiClient, market_id: &str) -> Result<()> {
+    println!("🏇 Fetching runners for market: {}\n", market_id);
+    
+    match client.list_runners(market_id).await {
+        Ok(markets) => {
+            if let Some(market) = markets.first() {
+                // Display market info
+                println!("📊 Market: {}", market.market_name);
+                if let Some(event) = &market.event {
+                    println!("🎯 Event: {}", event.name);
+                    if let Some(open_date) = &event.open_date {
+                        if let Ok(dt) = open_date.parse::<DateTime<Utc>>() {
+                            println!("📅 Start: {}", dt.format("%Y-%m-%d %H:%M UTC"));
+                        }
+                    }
+                }
+                
+                if let Some(description) = &market.description {
+                    println!("📈 Type: {}", description.market_type);
+                }
+                
+                // Display runners
+                if let Some(runners) = &market.runners {
+                    println!("\nRunners ({} total):\n", runners.len());
+                    println!("{:<15} {:<40} {:<12} {:<10}", "Selection ID", "Runner Name", "Handicap", "Sort");
+                    println!("{}", "─".repeat(80));
+                    
+                    for runner in runners {
+                        let name = if runner.runner_name.len() > 39 {
+                            format!("{}...", runner.runner_name.chars().take(36).collect::<String>())
+                        } else {
+                            runner.runner_name.clone()
+                        };
+                        
+                        let handicap = if runner.handicap != 0.0 {
+                            format!("{:+.1}", runner.handicap)
+                        } else {
+                            "-".to_string()
+                        };
+                        
+                        println!("{:<15} {:<40} {:<12} {:<10}",
+                            runner.selection_id,
+                            name,
+                            handicap,
+                            runner.sort_priority
+                        );
+                        
+                        // Display metadata if available
+                        if let Some(metadata) = &runner.metadata {
+                            if !metadata.is_empty() {
+                                for (key, value) in metadata {
+                                    println!("                  {}: {}", key, value);
+                                }
+                            }
+                        }
+                    }
+                    
+                    println!("\n💡 Use: betfair get_odds -m {} to see current prices", market_id);
+                    println!("💡 Use selection IDs to place orders on specific runners");
+                } else {
+                    println!("No runner data available");
+                }
+            } else {
+                println!("Market not found");
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching runners: {}", e);
+        }
+    }
+    
+    Ok(())
+}
