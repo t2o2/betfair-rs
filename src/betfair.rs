@@ -113,7 +113,7 @@ impl BetfairClient {
         market_ids: Vec<String>,
         levels: usize,
     ) -> Result<()> {
-        if levels < 1 || levels > 10 {
+        if !(1..=10).contains(&levels) {
             return Err(anyhow::anyhow!(
                 "Levels must be between 1 and 10, got {}",
                 levels
@@ -264,7 +264,7 @@ impl BetfairClient {
             }
         }
 
-        self.make_api_request(BETTING_URL, &format!("SportsAPING/v1.0/{}", method), params)
+        self.make_api_request(BETTING_URL, &format!("SportsAPING/v1.0/{method}"), params)
             .await
     }
 
@@ -277,7 +277,7 @@ impl BetfairClient {
         self.rate_limiter.acquire_for_data().await?;
         self.make_api_request(
             ACCOUNT_URL,
-            &format!("AccountAPING/v1.0/{}", method),
+            &format!("AccountAPING/v1.0/{method}"),
             params,
         )
         .await

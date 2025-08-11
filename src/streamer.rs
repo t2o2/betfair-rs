@@ -35,7 +35,7 @@ pub struct BetfairStreamer {
     is_resubscribing: Arc<Mutex<bool>>,
     orderbooks: HashMap<String, HashMap<String, Orderbook>>,
     connection_manager: ConnectionManager,
-    retry_policy: RetryPolicy,
+    _retry_policy: RetryPolicy,
 }
 
 impl BetfairStreamer {
@@ -54,7 +54,7 @@ impl BetfairStreamer {
             is_resubscribing: Arc::new(Mutex::new(false)),
             orderbooks: HashMap::new(),
             connection_manager: ConnectionManager::new(),
-            retry_policy: RetryPolicy::new(RetryConfig {
+            _retry_policy: RetryPolicy::new(RetryConfig {
                 max_attempts: 5,
                 initial_delay: Duration::from_secs(1),
                 max_delay: Duration::from_secs(60),
@@ -112,7 +112,7 @@ impl BetfairStreamer {
         tokio::spawn(async move {
             while let Some(message) = rx_write.recv().await {
                 if let Err(e) = writer.write_all(message.as_bytes()).await {
-                    eprintln!("Error writing to stream: {}", e);
+                    eprintln!("Error writing to stream: {e}");
                     break;
                 }
             }
@@ -125,7 +125,7 @@ impl BetfairStreamer {
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
-                    Ok(n) if n == 0 => break, // EOF
+                    Ok(0) => break, // EOF
                     Ok(_) => {
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
                         debug!("Received message: {}", line);
@@ -165,15 +165,12 @@ impl BetfairStreamer {
 
     fn create_market_subscription_message(market_id: &str, levels: usize) -> String {
         format!(
-            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {}}}}}\r\n",
-            market_id, levels
+            "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
         )
     }
 
     pub fn create_order_subscription_message() -> String {
-        format!(
-            "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n"
-        )
+        "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n".to_string()
     }
 
     pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
@@ -199,8 +196,7 @@ impl BetfairStreamer {
         if attempts >= 5 {
             self.connection_manager
                 .set_state(ConnectionState::Failed(format!(
-                    "Failed to reconnect after {} attempts",
-                    attempts
+                    "Failed to reconnect after {attempts} attempts"
                 )))
                 .await;
             return Err(anyhow::anyhow!("Max reconnection attempts exceeded"));
@@ -406,13 +402,13 @@ impl BetfairStreamer {
             let market_orderbooks = self
                 .orderbooks
                 .entry(market_id.clone())
-                .or_insert_with(|| HashMap::new());
+                .or_default();
 
             for runner_change in market_change.runner_changes {
                 let runner_id = runner_change.id.to_string();
                 let orderbook = market_orderbooks
                     .entry(runner_id.clone())
-                    .or_insert_with(|| Orderbook::new());
+                    .or_default();
                 if let Some(batb) = runner_change.available_to_back {
                     for level in batb {
                         if level.len() >= 3 {

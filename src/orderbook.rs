@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Orderbook {
     pub ts: i64,
     pub bids: Vec<PriceLevel>,
@@ -14,11 +14,7 @@ pub struct PriceLevel {
 
 impl Orderbook {
     pub fn new() -> Self {
-        Self {
-            ts: 0,
-            bids: Vec::new(),
-            asks: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn set_ts(&mut self, ts: i64) {

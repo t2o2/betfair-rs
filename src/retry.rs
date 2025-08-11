@@ -27,14 +27,17 @@ pub struct RetryPolicy {
     config: RetryConfig,
 }
 
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self::new(RetryConfig::default())
+    }
+}
+
 impl RetryPolicy {
     pub fn new(config: RetryConfig) -> Self {
         Self { config }
     }
 
-    pub fn default() -> Self {
-        Self::new(RetryConfig::default())
-    }
 
     pub async fn retry<F, Fut, T>(&self, operation: F) -> Result<T>
     where

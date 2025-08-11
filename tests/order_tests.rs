@@ -1,4 +1,4 @@
-use betfair_rs::order::{Order, OrderSide, OrderType, PersistenceType, TimeInForceType};
+use betfair_rs::order::{Order, OrderSide, OrderType, PersistenceType};
 
 #[test]
 fn test_order_creation() {
