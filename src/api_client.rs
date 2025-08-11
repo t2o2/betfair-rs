@@ -442,4 +442,62 @@ impl BetfairApiClient {
             }
         ).await
     }
+
+    /// List events for specific sports
+    pub async fn list_events(&self, event_type_ids: Vec<String>) -> Result<Vec<EventResult>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        self.make_json_rpc_request(
+            BETTING_URL,
+            "SportsAPING/v1.0/listEvents", 
+            ListEventsRequest {
+                filter: MarketFilter {
+                    event_type_ids: Some(event_type_ids),
+                    ..Default::default()
+                },
+                locale: Some("en".to_string()),
+            }
+        ).await
+    }
+
+    /// List competitions for specific sports
+    pub async fn list_competitions(&self, event_type_ids: Vec<String>) -> Result<Vec<CompetitionResult>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        self.make_json_rpc_request(
+            BETTING_URL,
+            "SportsAPING/v1.0/listCompetitions",
+            ListCompetitionsRequest {
+                filter: MarketFilter {
+                    event_type_ids: Some(event_type_ids),
+                    ..Default::default()
+                },
+                locale: Some("en".to_string()),
+            }
+        ).await
+    }
+
+    /// List competitions with custom filter
+    pub async fn list_competitions_filtered(&self, filter: MarketFilter) -> Result<Vec<CompetitionResult>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        self.make_json_rpc_request(
+            BETTING_URL,
+            "SportsAPING/v1.0/listCompetitions",
+            ListCompetitionsRequest {
+                filter,
+                locale: Some("en".to_string()),
+            }
+        ).await
+    }
+
+    /// List events with custom filter
+    pub async fn list_events_filtered(&self, filter: MarketFilter) -> Result<Vec<EventResult>> {
+        self.rate_limiter.acquire_for_navigation().await?;
+        self.make_json_rpc_request(
+            BETTING_URL,
+            "SportsAPING/v1.0/listEvents",
+            ListEventsRequest {
+                filter,
+                locale: Some("en".to_string()),
+            }
+        ).await
+    }
 }

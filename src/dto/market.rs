@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use super::common::{MarketStatus, RunnerStatus, PriceData, MarketProjection, MatchProjection, OrderProjection, TimeRange, PriceSize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -377,24 +377,34 @@ pub struct EventTypeResult {
     pub market_count: i32,
 }
 
-impl Default for MarketFilter {
-    fn default() -> Self {
-        Self {
-            text_query: None,
-            exchange_ids: None,
-            event_type_ids: None,
-            event_ids: None,
-            competition_ids: None,
-            market_ids: None,
-            venues: None,
-            bsp_only: None,
-            turn_in_play_enabled: None,
-            in_play_only: None,
-            market_betting_types: None,
-            market_countries: None,
-            market_type_codes: None,
-            market_start_time: None,
-            with_orders: None,
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListEventsRequest {
+    pub filter: MarketFilter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventResult {
+    pub event: Event,
+    pub market_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCompetitionsRequest {
+    pub filter: MarketFilter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompetitionResult {
+    pub competition: Competition,
+    pub market_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub competition_region: Option<String>,
 }
