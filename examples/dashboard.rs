@@ -375,6 +375,10 @@ impl App {
     }
     
     async fn load_orderbook(&mut self, market_id: &str) -> Result<()> {
+        // Clear current orderbook and reset selection
+        self.current_orderbook = None;
+        self.selected_runner = None;
+        
         // First, get runner names from the market catalog
         let mut runner_names = HashMap::new();
         if let Some(client) = &mut self.api_client {
@@ -406,72 +410,80 @@ impl App {
         
         // Try to use streaming if available
         if self.streaming_connected {
-            // Unsubscribe from previous market if different
-            if let Some(prev_market) = &self.current_streaming_market {
-                if prev_market != market_id {
-                    // Note: We might need to add unsubscribe functionality to BetfairClient
-                    // For now, we'll just subscribe to the new market
-                }
-            }
+            // Check if we need to subscribe to a different market
+            let needs_subscription = if let Some(prev_market) = &self.current_streaming_market {
+                prev_market != market_id
+            } else {
+                true
+            };
             
-            // Subscribe to the new market
-            if let Some(client) = &self.streaming_client {
-                if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
-                    self.error_message = Some(format!("Failed to subscribe to market stream: {}", e));
-                    self.streaming_connected = false;
-                } else {
-                    self.current_streaming_market = Some(market_id.to_string());
-                    self.status_message = format!("Streaming market {}", market_id);
-                    
-                    // Give streaming a moment to populate initial data
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                    
-                    // Read from streaming orderbooks
-                    let orderbooks = self.streaming_orderbooks.read().unwrap();
-                    if let Some(market_orderbooks) = orderbooks.get(market_id) {
-                        let mut runner_books = vec![];
+            // Subscribe to the market if needed
+            if needs_subscription {
+                if let Some(client) = &self.streaming_client {
+                    if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
+                        self.error_message = Some(format!("Failed to subscribe to market stream: {}", e));
+                        self.streaming_connected = false;
+                    } else {
+                        self.current_streaming_market = Some(market_id.to_string());
+                        self.status_message = format!("Streaming market {}", market_id);
                         
-                        for (runner_id_str, orderbook) in market_orderbooks {
-                            let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
-                            
-                            // Convert streaming orderbook to our format
-                            let bids: Vec<(f64, f64)> = orderbook.bids.iter()
-                                .take(10)
-                                .map(|level| (level.price, level.size))
-                                .collect();
-                            
-                            let asks: Vec<(f64, f64)> = orderbook.asks.iter()
-                                .take(10)
-                                .map(|level| (level.price, level.size))
-                                .collect();
-                            
-                            let runner_name = runner_names.get(runner_id_str)
-                                .cloned()
-                                .unwrap_or_else(|| format!("Runner {}", runner_id));
-                            
-                            runner_books.push(RunnerOrderBook {
-                                runner_id,
-                                runner_name,
-                                bids,
-                                asks,
-                                last_traded: None,
-                                total_matched: 0.0,
-                                is_streaming: true,
-                            });
-                        }
-                        
-                        self.current_orderbook = Some(OrderBookData {
-                            market_id: market_id.to_string(),
-                            runners: runner_books,
-                        });
-                        
-                        if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
-                            self.selected_runner = Some(0);
-                        }
-                        
-                        return Ok(());
+                        // Give streaming a moment to populate initial data
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
                 }
+            } else {
+                // Already subscribed to this market, just wait a bit for fresh data
+                self.status_message = format!("Refreshing market {}", market_id);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            
+            // Read from streaming orderbooks
+            let orderbooks = self.streaming_orderbooks.read().unwrap();
+            if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                let mut runner_books = vec![];
+                
+                for (runner_id_str, orderbook) in market_orderbooks {
+                    let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
+                    
+                    // Convert streaming orderbook to our format
+                    let bids: Vec<(f64, f64)> = orderbook.bids.iter()
+                        .take(10)
+                        .map(|level| (level.price, level.size))
+                        .collect();
+                    
+                    let asks: Vec<(f64, f64)> = orderbook.asks.iter()
+                        .take(10)
+                        .map(|level| (level.price, level.size))
+                        .collect();
+                    
+                    let runner_name = runner_names.get(runner_id_str)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Runner {}", runner_id));
+                    
+                    runner_books.push(RunnerOrderBook {
+                        runner_id,
+                        runner_name,
+                        bids,
+                        asks,
+                        last_traded: None,
+                        total_matched: 0.0,
+                        is_streaming: true,
+                    });
+                }
+                
+                // Sort runners by ID for consistent ordering
+                runner_books.sort_by_key(|r| r.runner_id);
+                
+                self.current_orderbook = Some(OrderBookData {
+                    market_id: market_id.to_string(),
+                    runners: runner_books,
+                });
+                
+                if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
+                    self.selected_runner = Some(0);
+                }
+                
+                return Ok(());
             }
         }
         
@@ -522,6 +534,9 @@ impl App {
                             is_streaming: false,
                         });
                     }
+                    
+                    // Sort runners by ID for consistent ordering
+                    runner_books.sort_by_key(|r| r.runner_id);
                     
                     self.current_orderbook = Some(OrderBookData {
                         market_id: market_id.to_string(),
@@ -816,19 +831,22 @@ impl App {
                 let orderbooks = self.streaming_orderbooks.read().unwrap();
                 if let Some(market_orderbooks) = orderbooks.get(market_id) {
                     if let Some(current_ob) = &mut self.current_orderbook {
-                        // Update existing runners with streaming data
-                        for runner in &mut current_ob.runners {
-                            let runner_id_str = runner.runner_id.to_string();
-                            if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
-                                runner.bids = streaming_ob.bids.iter()
-                                    .take(10)
-                                    .map(|level| (level.price, level.size))
-                                    .collect();
-                                runner.asks = streaming_ob.asks.iter()
-                                    .take(10)
-                                    .map(|level| (level.price, level.size))
-                                    .collect();
-                                runner.is_streaming = true;
+                        // Only update if we have the same market
+                        if current_ob.market_id == *market_id {
+                            // Update existing runners with streaming data
+                            for runner in &mut current_ob.runners {
+                                let runner_id_str = runner.runner_id.to_string();
+                                if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
+                                    runner.bids = streaming_ob.bids.iter()
+                                        .take(10)
+                                        .map(|level| (level.price, level.size))
+                                        .collect();
+                                    runner.asks = streaming_ob.asks.iter()
+                                        .take(10)
+                                        .map(|level| (level.price, level.size))
+                                        .collect();
+                                    runner.is_streaming = true;
+                                }
                             }
                         }
                     }
