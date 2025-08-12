@@ -1,7 +1,7 @@
 use anyhow::Result;
 use betfair_rs::{
     api_client::BetfairApiClient,
-    betfair::BetfairClient,
+    streaming_client::StreamingClient,
     config::Config,
     dto::{
         MarketFilter, ListMarketCatalogueRequest,
@@ -32,10 +32,11 @@ use ratatui::{
 };
 use std::{
     io,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
     collections::HashMap,
 };
+use tracing::info;
 
 #[derive(Debug, Clone)]
 enum AppMode {
@@ -180,7 +181,7 @@ struct App {
     
     // Clients
     api_client: Option<BetfairApiClient>,
-    streaming_client: Option<Arc<Mutex<BetfairClient>>>,
+    streaming_client: Option<StreamingClient>,
 }
 
 impl App {
@@ -248,22 +249,26 @@ impl App {
         self.api_connected = true;
         self.api_client = Some(api_client);
         
-        // Initialize streaming client
-        // NOTE: Streaming is currently disabled because start_listening() is a blocking call
-        // that would freeze the UI. To enable streaming, the BetfairClient needs to be
-        // refactored to:
-        // 1. Use a non-blocking architecture with channels for communication
-        // 2. Run the WebSocket listener in a separate task
-        // 3. Send orderbook updates via channels instead of callbacks
-        // 
-        // The infrastructure for streaming updates is in place:
-        // - streaming_orderbooks: Shared storage for streaming data
-        // - update_orderbook_from_streaming(): Updates UI from streaming data
-        // - load_orderbook(): Can subscribe to markets and use streaming data
-        // - UI indicators: Shows [LIVE] when streaming is active
-        self.streaming_connected = false;
-        let streaming_client = BetfairClient::new(config.clone());
-        self.streaming_client = Some(Arc::new(Mutex::new(streaming_client)));
+        // Initialize streaming client with non-blocking architecture
+        self.status_message = "Initializing streaming client...".to_string();
+        let mut streaming_client = StreamingClient::new(config.clone());
+        
+        // Try to start the streaming client
+        match streaming_client.start().await {
+            Ok(()) => {
+                // Get the shared orderbooks reference
+                self.streaming_orderbooks = streaming_client.get_orderbooks();
+                self.streaming_connected = true;
+                self.status_message = "Streaming connected".to_string();
+                info!("Streaming client connected successfully");
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to start streaming client: {}. Continuing without streaming.", e);
+                self.streaming_connected = false;
+            }
+        }
+        
+        self.streaming_client = Some(streaming_client);
         
         // Load initial data
         self.load_sports().await?;
@@ -411,17 +416,11 @@ impl App {
             
             // Subscribe to the new market
             if let Some(client) = &self.streaming_client {
-                let mut client = client.lock().unwrap();
-                if let Err(e) = client.subscribe_to_markets(vec![market_id.to_string()], 5).await {
+                if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
                     self.error_message = Some(format!("Failed to subscribe to market stream: {}", e));
                     self.streaming_connected = false;
                 } else {
                     self.current_streaming_market = Some(market_id.to_string());
-                    
-                    // Start listening if not already started
-                    // This is a blocking call, so we need to run it in a task
-                    // For now, we'll skip this as it requires refactoring the streaming client
-                    
                     self.status_message = format!("Streaming market {}", market_id);
                     
                     // Give streaming a moment to populate initial data
