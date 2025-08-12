@@ -12,6 +12,7 @@ use betfair_rs::{
             CancelOrdersRequest, CancelInstruction, ListCurrentOrdersRequest
         }
     },
+    orderbook::Orderbook,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -31,8 +32,9 @@ use ratatui::{
 };
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant},
+    collections::HashMap,
 };
 
 #[derive(Debug, Clone)]
@@ -114,6 +116,7 @@ struct RunnerOrderBook {
     last_traded: Option<f64>,
     #[allow(dead_code)]
     total_matched: f64,
+    is_streaming: bool,  // Flag to indicate if data is from streaming
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +143,7 @@ struct App {
     // Order book state
     current_orderbook: Option<OrderBookData>,
     selected_runner: Option<usize>,
+    streaming_orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>, // market_id -> runner_id -> orderbook
     
     // Active orders state
     active_orders: Vec<Order>,
@@ -161,10 +165,10 @@ struct App {
     
     // Connection state
     api_connected: bool,
-    #[allow(dead_code)]
     streaming_connected: bool,
     #[allow(dead_code)]
     last_update: Instant,
+    current_streaming_market: Option<String>,  // Track which market we're streaming
     
     // Search state
     #[allow(dead_code)]
@@ -196,6 +200,7 @@ impl App {
             
             current_orderbook: None,
             selected_runner: None,
+            streaming_orderbooks: Arc::new(RwLock::new(HashMap::new())),
             
             active_orders: vec![],
             selected_order: None,
@@ -215,6 +220,7 @@ impl App {
             api_connected: false,
             streaming_connected: false,
             last_update: Instant::now(),
+            current_streaming_market: None,
             
             search_query: String::new(),
             
@@ -242,16 +248,33 @@ impl App {
         self.api_connected = true;
         self.api_client = Some(api_client);
         
-        // Initialize streaming client (in background)
-        let streaming_client = Arc::new(Mutex::new(BetfairClient::new(config.clone())));
-        self.streaming_client = Some(streaming_client);
+        // Initialize streaming client
+        // NOTE: Streaming is currently disabled because start_listening() is a blocking call
+        // that would freeze the UI. To enable streaming, the BetfairClient needs to be
+        // refactored to:
+        // 1. Use a non-blocking architecture with channels for communication
+        // 2. Run the WebSocket listener in a separate task
+        // 3. Send orderbook updates via channels instead of callbacks
+        // 
+        // The infrastructure for streaming updates is in place:
+        // - streaming_orderbooks: Shared storage for streaming data
+        // - update_orderbook_from_streaming(): Updates UI from streaming data
+        // - load_orderbook(): Can subscribe to markets and use streaming data
+        // - UI indicators: Shows [LIVE] when streaming is active
+        self.streaming_connected = false;
+        let streaming_client = BetfairClient::new(config.clone());
+        self.streaming_client = Some(Arc::new(Mutex::new(streaming_client)));
         
         // Load initial data
         self.load_sports().await?;
         self.load_account_info().await?;
         self.load_active_orders().await?;
         
-        self.status_message = "Connected to Betfair".to_string();
+        self.status_message = if self.streaming_connected {
+            "Connected to Betfair (with streaming)".to_string()
+        } else {
+            "Connected to Betfair (polling mode)".to_string()
+        };
         Ok(())
     }
     
@@ -347,8 +370,9 @@ impl App {
     }
     
     async fn load_orderbook(&mut self, market_id: &str) -> Result<()> {
+        // First, get runner names from the market catalog
+        let mut runner_names = HashMap::new();
         if let Some(client) = &mut self.api_client {
-            // First, get the market catalog to ensure we have accurate runner names
             let filter = MarketFilter {
                 market_ids: Some(vec![market_id.to_string()]),
                 ..Default::default()
@@ -364,18 +388,96 @@ impl App {
                 locale: None,
             };
             
-            let mut runner_names = std::collections::HashMap::new();
             if let Ok(markets) = client.list_market_catalogue(catalog_request).await {
                 if let Some(market) = markets.first() {
                     if let Some(runners) = &market.runners {
                         for runner in runners {
-                            runner_names.insert(runner.selection_id, runner.runner_name.clone());
+                            runner_names.insert(runner.selection_id.to_string(), runner.runner_name.clone());
                         }
                     }
                 }
             }
+        }
+        
+        // Try to use streaming if available
+        if self.streaming_connected {
+            // Unsubscribe from previous market if different
+            if let Some(prev_market) = &self.current_streaming_market {
+                if prev_market != market_id {
+                    // Note: We might need to add unsubscribe functionality to BetfairClient
+                    // For now, we'll just subscribe to the new market
+                }
+            }
             
-            // Now get the odds
+            // Subscribe to the new market
+            if let Some(client) = &self.streaming_client {
+                let mut client = client.lock().unwrap();
+                if let Err(e) = client.subscribe_to_markets(vec![market_id.to_string()], 5).await {
+                    self.error_message = Some(format!("Failed to subscribe to market stream: {}", e));
+                    self.streaming_connected = false;
+                } else {
+                    self.current_streaming_market = Some(market_id.to_string());
+                    
+                    // Start listening if not already started
+                    // This is a blocking call, so we need to run it in a task
+                    // For now, we'll skip this as it requires refactoring the streaming client
+                    
+                    self.status_message = format!("Streaming market {}", market_id);
+                    
+                    // Give streaming a moment to populate initial data
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                    
+                    // Read from streaming orderbooks
+                    let orderbooks = self.streaming_orderbooks.read().unwrap();
+                    if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                        let mut runner_books = vec![];
+                        
+                        for (runner_id_str, orderbook) in market_orderbooks {
+                            let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
+                            
+                            // Convert streaming orderbook to our format
+                            let bids: Vec<(f64, f64)> = orderbook.bids.iter()
+                                .take(10)
+                                .map(|level| (level.price, level.size))
+                                .collect();
+                            
+                            let asks: Vec<(f64, f64)> = orderbook.asks.iter()
+                                .take(10)
+                                .map(|level| (level.price, level.size))
+                                .collect();
+                            
+                            let runner_name = runner_names.get(runner_id_str)
+                                .cloned()
+                                .unwrap_or_else(|| format!("Runner {}", runner_id));
+                            
+                            runner_books.push(RunnerOrderBook {
+                                runner_id,
+                                runner_name,
+                                bids,
+                                asks,
+                                last_traded: None,
+                                total_matched: 0.0,
+                                is_streaming: true,
+                            });
+                        }
+                        
+                        self.current_orderbook = Some(OrderBookData {
+                            market_id: market_id.to_string(),
+                            runners: runner_books,
+                        });
+                        
+                        if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
+                            self.selected_runner = Some(0);
+                        }
+                        
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        
+        // Fall back to polling if streaming not available or failed
+        if let Some(client) = &mut self.api_client {
             let market_books = client.get_odds(market_id.to_string()).await?;
             
             if let Some(market_book) = market_books.first() {
@@ -401,8 +503,7 @@ impl App {
                             }
                         }
                         
-                        // Get runner name from our fresh catalog fetch, fallback to stored markets, then to generic name
-                        let runner_name = runner_names.get(&runner.selection_id)
+                        let runner_name = runner_names.get(&runner.selection_id.to_string())
                             .cloned()
                             .or_else(|| {
                                 self.markets.iter()
@@ -419,6 +520,7 @@ impl App {
                             asks,
                             last_traded: runner.last_price_traded,
                             total_matched: runner.total_matched.unwrap_or(0.0),
+                            is_streaming: false,
                         });
                     }
                     
@@ -427,7 +529,6 @@ impl App {
                         runners: runner_books,
                     });
                     
-                    // Select first runner by default
                     if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
                         self.selected_runner = Some(0);
                     }
@@ -708,6 +809,34 @@ impl App {
             Panel::OrderEntry => Panel::ActiveOrders,
         };
     }
+    
+    fn update_orderbook_from_streaming(&mut self) {
+        // Update current orderbook display from streaming data if available
+        if self.streaming_connected {
+            if let Some(market_id) = &self.current_streaming_market {
+                let orderbooks = self.streaming_orderbooks.read().unwrap();
+                if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                    if let Some(current_ob) = &mut self.current_orderbook {
+                        // Update existing runners with streaming data
+                        for runner in &mut current_ob.runners {
+                            let runner_id_str = runner.runner_id.to_string();
+                            if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
+                                runner.bids = streaming_ob.bids.iter()
+                                    .take(10)
+                                    .map(|level| (level.price, level.size))
+                                    .collect();
+                                runner.asks = streaming_ob.asks.iter()
+                                    .take(10)
+                                    .map(|level| (level.price, level.size))
+                                    .collect();
+                                runner.is_streaming = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn ui(f: &mut Frame, app: &App) {
@@ -859,10 +988,15 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::OrderBook);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
     
-    // Include selected market name in title if available
+    // Include selected market name and streaming status in title
     let title = if let Some(market_idx) = app.selected_market {
         if let Some(market) = app.markets.get(market_idx) {
-            format!(" Order Book - {} ", market.name)
+            let streaming_indicator = if app.streaming_connected && app.current_streaming_market.is_some() {
+                " [LIVE]"
+            } else {
+                ""
+            };
+            format!(" Order Book - {}{} ", market.name, streaming_indicator)
         } else {
             " Order Book ".to_string()
         }
@@ -1160,6 +1294,11 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("●", Style::default().fg(Color::Green))
         } else {
             Span::styled("●", Style::default().fg(Color::Red))
+        },
+        if app.streaming_connected {
+            Span::styled(" LIVE", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" POLL", Style::default().fg(Color::DarkGray))
         },
         Span::raw(format!(" £{:.2}", app.available_balance)),
         Span::raw(format!(" [{} orders]", app.total_orders)),
@@ -1659,14 +1798,22 @@ async fn main() -> Result<()> {
     
     // Main loop
     let mut last_refresh = Instant::now();
+    let mut last_streaming_update = Instant::now();
     let refresh_interval = Duration::from_secs(30);
+    let streaming_update_interval = Duration::from_millis(100); // Update streaming data every 100ms
     
     loop {
+        // Update orderbook from streaming data if available
+        if app.streaming_connected && last_streaming_update.elapsed() > streaming_update_interval {
+            app.update_orderbook_from_streaming();
+            last_streaming_update = Instant::now();
+        }
+        
         // Draw UI
         terminal.draw(|f| ui(f, &app))?;
         
         // Handle events with timeout for periodic refresh
-        if event::poll(Duration::from_millis(100))? {
+        if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if handle_input(&mut app, key.code).await? {
                     break;
@@ -1674,7 +1821,7 @@ async fn main() -> Result<()> {
             }
         }
         
-        // Periodic refresh
+        // Periodic refresh for account and orders
         if last_refresh.elapsed() > refresh_interval {
             if let Err(e) = app.load_account_info().await {
                 app.error_message = Some(format!("Refresh failed: {e}"));
@@ -1682,6 +1829,17 @@ async fn main() -> Result<()> {
             if let Err(e) = app.load_active_orders().await {
                 app.error_message = Some(format!("Refresh failed: {e}"));
             }
+            
+            // If not streaming, also refresh orderbook
+            if !app.streaming_connected && app.selected_market.is_some() {
+                if let Some(market) = app.selected_market.and_then(|idx| app.markets.get(idx)) {
+                    let market_id = market.id.clone();
+                    if let Err(e) = app.load_orderbook(&market_id).await {
+                        app.error_message = Some(format!("Orderbook refresh failed: {e}"));
+                    }
+                }
+            }
+            
             last_refresh = Instant::now();
         }
     }
