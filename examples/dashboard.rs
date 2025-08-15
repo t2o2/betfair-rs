@@ -1445,17 +1445,19 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
             match app.active_panel {
                 Panel::MarketBrowser => {
                     vec![
-                        ("1-9/a-z", "Select"),
+                        ("↑↓/jk", "Navigate"),
+                        ("1-9/a-z", "Quick Select"),
+                        ("Enter", "Select"),
                         ("Backspace", "Back"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
-                        ("r", "Refresh"),
                         ("q", "Quit"),
                     ]
                 },
                 Panel::OrderBook => {
                     vec![
-                        ("1-9", "Select Runner"),
+                        ("↑↓/jk", "Navigate"),
+                        ("1-9", "Quick Select"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
                         ("r", "Refresh"),
@@ -1464,16 +1466,17 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                 },
                 Panel::ActiveOrders => {
                     vec![
-                        ("1-9/a-z", "Select"),
+                        ("↑↓/jk", "Navigate"),
+                        ("1-9/a-z", "Quick Select"),
                         ("c/Enter", "Cancel"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
-                        ("r", "Refresh"),
                         ("q", "Quit"),
                     ]
                 },
                 Panel::OrderEntry => {
                     vec![
+                        ("↑↓", "Switch Field"),
                         ("Tab", "Next Panel"),
                         ("o", "Order"),
                         ("r", "Refresh"),
@@ -1484,7 +1487,7 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
         },
         AppMode::Order => {
             vec![
-                ("Tab", "Next Field"),
+                ("↑↓/Tab", "Switch Field"),
                 ("Enter", "Place Order"),
                 ("Esc", "Cancel"),
                 ("b/l", "Back/Lay"),
@@ -1619,6 +1622,145 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     app.status_message = "Refreshed".to_string();
                 }
                 KeyCode::Char('?') => app.mode = AppMode::Help,
+                // Arrow key navigation (Up/Down for moving within panel)
+                KeyCode::Up | KeyCode::Char('k') => {
+                    match app.active_panel {
+                        Panel::MarketBrowser => {
+                            // Navigate up in the currently active list
+                            if !app.markets.is_empty() {
+                                if let Some(selected) = app.selected_market {
+                                    if selected > 0 {
+                                        app.selected_market = Some(selected - 1);
+                                    }
+                                }
+                            } else if !app.events.is_empty() {
+                                if let Some(selected) = app.selected_event {
+                                    if selected > 0 {
+                                        app.selected_event = Some(selected - 1);
+                                    }
+                                }
+                            } else if !app.competitions.is_empty() {
+                                if let Some(selected) = app.selected_competition {
+                                    if selected > 0 {
+                                        app.selected_competition = Some(selected - 1);
+                                    }
+                                }
+                            } else if !app.sports.is_empty() {
+                                if let Some(selected) = app.selected_sport {
+                                    if selected > 0 {
+                                        app.selected_sport = Some(selected - 1);
+                                    }
+                                }
+                            }
+                        }
+                        Panel::OrderBook => {
+                            if let Some(orderbook) = &app.current_orderbook {
+                                if !orderbook.runners.is_empty() {
+                                    if let Some(selected) = app.selected_runner {
+                                        if selected > 0 {
+                                            app.selected_runner = Some(selected - 1);
+                                            handle_runner_selection(app, selected - 1);
+                                        }
+                                    } else {
+                                        app.selected_runner = Some(0);
+                                        handle_runner_selection(app, 0);
+                                    }
+                                }
+                            }
+                        }
+                        Panel::ActiveOrders => {
+                            if !app.active_orders.is_empty() {
+                                if let Some(selected) = app.selected_order {
+                                    if selected > 0 {
+                                        app.selected_order = Some(selected - 1);
+                                    }
+                                } else {
+                                    app.selected_order = Some(0);
+                                }
+                            }
+                        }
+                        Panel::OrderEntry => {
+                            // In order entry, up/down can switch between price and size fields
+                            app.order_field_focus = match app.order_field_focus {
+                                OrderField::Size => OrderField::Price,
+                                OrderField::Price => OrderField::Size,
+                            };
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    match app.active_panel {
+                        Panel::MarketBrowser => {
+                            // Navigate down in the currently active list
+                            if !app.markets.is_empty() {
+                                if let Some(selected) = app.selected_market {
+                                    if selected < app.markets.len() - 1 {
+                                        app.selected_market = Some(selected + 1);
+                                    }
+                                } else {
+                                    app.selected_market = Some(0);
+                                }
+                            } else if !app.events.is_empty() {
+                                if let Some(selected) = app.selected_event {
+                                    if selected < app.events.len() - 1 {
+                                        app.selected_event = Some(selected + 1);
+                                    }
+                                } else {
+                                    app.selected_event = Some(0);
+                                }
+                            } else if !app.competitions.is_empty() {
+                                if let Some(selected) = app.selected_competition {
+                                    if selected < app.competitions.len() - 1 {
+                                        app.selected_competition = Some(selected + 1);
+                                    }
+                                } else {
+                                    app.selected_competition = Some(0);
+                                }
+                            } else if !app.sports.is_empty() {
+                                if let Some(selected) = app.selected_sport {
+                                    if selected < app.sports.len() - 1 {
+                                        app.selected_sport = Some(selected + 1);
+                                    }
+                                } else {
+                                    app.selected_sport = Some(0);
+                                }
+                            }
+                        }
+                        Panel::OrderBook => {
+                            if let Some(orderbook) = &app.current_orderbook {
+                                if !orderbook.runners.is_empty() {
+                                    if let Some(selected) = app.selected_runner {
+                                        if selected < orderbook.runners.len() - 1 {
+                                            app.selected_runner = Some(selected + 1);
+                                            handle_runner_selection(app, selected + 1);
+                                        }
+                                    } else {
+                                        app.selected_runner = Some(0);
+                                        handle_runner_selection(app, 0);
+                                    }
+                                }
+                            }
+                        }
+                        Panel::ActiveOrders => {
+                            if !app.active_orders.is_empty() {
+                                if let Some(selected) = app.selected_order {
+                                    if selected < app.active_orders.len() - 1 {
+                                        app.selected_order = Some(selected + 1);
+                                    }
+                                } else {
+                                    app.selected_order = Some(0);
+                                }
+                            }
+                        }
+                        Panel::OrderEntry => {
+                            // In order entry, up/down can switch between price and size fields
+                            app.order_field_focus = match app.order_field_focus {
+                                OrderField::Price => OrderField::Size,
+                                OrderField::Size => OrderField::Price,
+                            };
+                        }
+                    }
+                }
                 KeyCode::Enter => {
                     match app.active_panel {
                         Panel::MarketBrowser => {
@@ -1838,8 +1980,15 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     app.active_panel = Panel::MarketBrowser;
                     app.error_message = None;  // Clear error on exit
                 }
-                KeyCode::Tab => {
-                    // Toggle between Price and Size fields
+                KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
+                    // Toggle between Price and Size fields (down moves forward)
+                    app.order_field_focus = match app.order_field_focus {
+                        OrderField::Price => OrderField::Size,
+                        OrderField::Size => OrderField::Price,
+                    };
+                }
+                KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => {
+                    // Toggle between Price and Size fields (up moves backward)
                     app.order_field_focus = match app.order_field_focus {
                         OrderField::Price => OrderField::Size,
                         OrderField::Size => OrderField::Price,
