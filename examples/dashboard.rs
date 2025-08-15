@@ -1,18 +1,18 @@
 use anyhow::Result;
 use betfair_rs::{
     api_client::BetfairApiClient,
-    streaming_client::StreamingClient,
     config::Config,
     dto::{
-        MarketFilter, ListMarketCatalogueRequest,
-        common::{Side, OrderType, PersistenceType, MarketProjection},
         account::GetAccountFundsRequest,
+        common::{MarketProjection, OrderType, PersistenceType, Side},
         order::{
-            PlaceOrdersRequest, PlaceInstruction, LimitOrder,
-            CancelOrdersRequest, CancelInstruction, ListCurrentOrdersRequest
-        }
+            CancelInstruction, CancelOrdersRequest, LimitOrder, ListCurrentOrdersRequest,
+            PlaceInstruction, PlaceOrdersRequest,
+        },
+        ListMarketCatalogueRequest, MarketFilter,
     },
     orderbook::Orderbook,
+    streaming_client::StreamingClient,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -25,16 +25,15 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem,
-        Paragraph, Row, Table, TableState
+        Block, BorderType, Borders, Cell, List, ListItem, Paragraph, Row, Table, TableState,
     },
     Frame, Terminal,
 };
 use std::{
+    collections::HashMap,
     io,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
-    collections::HashMap,
 };
 use tracing::info;
 
@@ -117,10 +116,10 @@ struct RunnerOrderBook {
     last_traded: Option<f64>,
     #[allow(dead_code)]
     total_matched: f64,
-    is_streaming: bool,  // Flag to indicate if data is from streaming
-    last_update: Option<Instant>,  // Track when this runner was last updated
-    prev_best_bid: Option<f64>,  // Track previous best bid for change detection
-    prev_best_ask: Option<f64>,  // Track previous best ask for change detection
+    is_streaming: bool,           // Flag to indicate if data is from streaming
+    last_update: Option<Instant>, // Track when this runner was last updated
+    prev_best_bid: Option<f64>,   // Track previous best bid for change detection
+    prev_best_ask: Option<f64>,   // Track previous best ask for change detection
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +132,7 @@ struct OrderBookData {
 struct App {
     mode: AppMode,
     active_panel: Panel,
-    
+
     // Market browser state
     sports: Vec<(String, String, u32)>, // (id, name, market_count)
     selected_sport: Option<usize>,
@@ -143,17 +142,17 @@ struct App {
     selected_event: Option<usize>,
     markets: Vec<Market>,
     selected_market: Option<usize>,
-    
+
     // Order book state
     current_orderbook: Option<OrderBookData>,
     selected_runner: Option<usize>,
     streaming_orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>, // market_id -> runner_id -> orderbook
     last_streaming_update: Option<Instant>, // Track when we last received streaming data
-    
+
     // Active orders state
     active_orders: Vec<Order>,
     selected_order: Option<usize>,
-    
+
     // Order entry state
     order_market_id: String,
     order_selection_id: String,
@@ -162,27 +161,27 @@ struct App {
     order_price: String,
     order_size: String,
     order_field_focus: OrderField,
-    
+
     // Account state
     available_balance: f64,
     exposure: f64,
     total_orders: usize,
-    
+
     // Connection state
     api_connected: bool,
     streaming_connected: bool,
     #[allow(dead_code)]
     last_update: Instant,
-    current_streaming_market: Option<String>,  // Track which market we're streaming
-    
+    current_streaming_market: Option<String>, // Track which market we're streaming
+
     // Search state
     #[allow(dead_code)]
     search_query: String,
-    
+
     // UI state
     status_message: String,
     error_message: Option<String>,
-    
+
     // Clients
     api_client: Option<BetfairApiClient>,
     streaming_client: Option<StreamingClient>,
@@ -193,7 +192,7 @@ impl App {
         Self {
             mode: AppMode::Browse,
             active_panel: Panel::MarketBrowser,
-            
+
             sports: vec![],
             selected_sport: None,
             competitions: vec![],
@@ -202,15 +201,15 @@ impl App {
             selected_event: None,
             markets: vec![],
             selected_market: None,
-            
+
             current_orderbook: None,
             selected_runner: None,
             streaming_orderbooks: Arc::new(RwLock::new(HashMap::new())),
             last_streaming_update: None,
-            
+
             active_orders: vec![],
             selected_order: None,
-            
+
             order_market_id: String::new(),
             order_selection_id: String::new(),
             order_runner_name: String::new(),
@@ -218,46 +217,49 @@ impl App {
             order_price: String::new(),
             order_size: String::new(),
             order_field_focus: OrderField::Price,
-            
+
             available_balance: 0.0,
             exposure: 0.0,
             total_orders: 0,
-            
+
             api_connected: false,
             streaming_connected: false,
             last_update: Instant::now(),
             current_streaming_market: None,
-            
+
             search_query: String::new(),
-            
+
             status_message: "Initializing...".to_string(),
             error_message: None,
-            
+
             api_client: None,
             streaming_client: None,
         }
     }
-    
+
     async fn init(&mut self) -> Result<()> {
         // Load configuration and create clients
         let config = Config::new()?;
-        
+
         // Initialize API client
         let mut api_client = BetfairApiClient::new(config.clone());
         self.status_message = "Logging in to Betfair API...".to_string();
-        
+
         let login_response = api_client.login().await?;
         if login_response.login_status != "SUCCESS" {
-            return Err(anyhow::anyhow!("Login failed: {}", login_response.login_status));
+            return Err(anyhow::anyhow!(
+                "Login failed: {}",
+                login_response.login_status
+            ));
         }
-        
+
         self.api_connected = true;
         self.api_client = Some(api_client);
-        
+
         // Initialize streaming client with non-blocking architecture
         self.status_message = "Initializing streaming client...".to_string();
         let mut streaming_client = StreamingClient::new(config.clone());
-        
+
         // Try to start the streaming client
         match streaming_client.start().await {
             Ok(()) => {
@@ -268,18 +270,20 @@ impl App {
                 info!("Streaming client connected successfully");
             }
             Err(e) => {
-                eprintln!("Warning: Failed to start streaming client: {e}. Continuing without streaming.");
+                eprintln!(
+                    "Warning: Failed to start streaming client: {e}. Continuing without streaming."
+                );
                 self.streaming_connected = false;
             }
         }
-        
+
         self.streaming_client = Some(streaming_client);
-        
+
         // Load initial data
         self.load_sports().await?;
         self.load_account_info().await?;
         self.load_active_orders().await?;
-        
+
         self.status_message = if self.streaming_connected {
             "Connected to Betfair (with streaming)".to_string()
         } else {
@@ -287,7 +291,7 @@ impl App {
         };
         Ok(())
     }
-    
+
     async fn load_sports(&mut self) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             let sports = client.list_sports(None).await?;
@@ -300,7 +304,7 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn load_competitions(&mut self, sport_id: &str) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             let filter = MarketFilter {
@@ -316,7 +320,7 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn load_events(&mut self, sport_id: &str, competition_id: Option<&str>) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             let mut filter = MarketFilter {
@@ -334,7 +338,7 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn load_markets(&mut self, sport_id: &str, event_id: Option<&str>) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             let mut filter = MarketFilter {
@@ -344,7 +348,7 @@ impl App {
             if let Some(ev_id) = event_id {
                 filter.event_ids = Some(vec![ev_id.to_string()]);
             }
-            
+
             let request = ListMarketCatalogueRequest {
                 filter,
                 market_projection: Some(vec![
@@ -356,7 +360,7 @@ impl App {
                 max_results: Some(50),
                 locale: None,
             };
-            
+
             let markets_data = client.list_market_catalogue(request).await?;
             self.markets = markets_data
                 .into_iter()
@@ -366,24 +370,29 @@ impl App {
                     event_name: m.event.map(|e| e.name).unwrap_or_default(),
                     market_start_time: m.market_start_time,
                     total_matched: m.total_matched.unwrap_or(0.0),
-                    runners: m.runners.unwrap_or_default().into_iter().map(|r| Runner {
-                        id: r.selection_id as u64,
-                        name: r.runner_name,
-                        status: "Active".to_string(),
-                        last_price_traded: None,
-                        total_matched: None,
-                    }).collect(),
+                    runners: m
+                        .runners
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|r| Runner {
+                            id: r.selection_id as u64,
+                            name: r.runner_name,
+                            status: "Active".to_string(),
+                            last_price_traded: None,
+                            total_matched: None,
+                        })
+                        .collect(),
                 })
                 .collect();
         }
         Ok(())
     }
-    
+
     async fn load_orderbook(&mut self, market_id: &str) -> Result<()> {
         // Clear current orderbook and reset selection
         self.current_orderbook = None;
         self.selected_runner = None;
-        
+
         // First, get runner names from the market catalog
         let mut runner_names = HashMap::new();
         if let Some(client) = &mut self.api_client {
@@ -401,18 +410,21 @@ impl App {
                 max_results: Some(1),
                 locale: None,
             };
-            
+
             if let Ok(markets) = client.list_market_catalogue(catalog_request).await {
                 if let Some(market) = markets.first() {
                     if let Some(runners) = &market.runners {
                         for runner in runners {
-                            runner_names.insert(runner.selection_id.to_string(), runner.runner_name.clone());
+                            runner_names.insert(
+                                runner.selection_id.to_string(),
+                                runner.runner_name.clone(),
+                            );
                         }
                     }
                 }
             }
         }
-        
+
         // Try to use streaming if available
         if self.streaming_connected {
             // Check if we need to subscribe to a different market
@@ -421,17 +433,18 @@ impl App {
             } else {
                 true
             };
-            
+
             // Subscribe to the market if needed
             if needs_subscription {
                 if let Some(client) = &self.streaming_client {
                     if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
-                        self.error_message = Some(format!("Failed to subscribe to market stream: {e}"));
+                        self.error_message =
+                            Some(format!("Failed to subscribe to market stream: {e}"));
                         self.streaming_connected = false;
                     } else {
                         self.current_streaming_market = Some(market_id.to_string());
                         self.status_message = format!("Streaming market {market_id}");
-                        
+
                         // Give streaming a moment to populate initial data
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
@@ -441,30 +454,35 @@ impl App {
                 self.status_message = format!("Refreshing market {market_id}");
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-            
+
             // Read from streaming orderbooks
             let orderbooks = self.streaming_orderbooks.read().unwrap();
             if let Some(market_orderbooks) = orderbooks.get(market_id) {
                 let mut runner_books = vec![];
-                
+
                 for (runner_id_str, orderbook) in market_orderbooks {
                     let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
-                    
+
                     // Convert streaming orderbook to our format
-                    let bids: Vec<(f64, f64)> = orderbook.bids.iter()
+                    let bids: Vec<(f64, f64)> = orderbook
+                        .bids
+                        .iter()
                         .take(10)
                         .map(|level| (level.price, level.size))
                         .collect();
-                    
-                    let asks: Vec<(f64, f64)> = orderbook.asks.iter()
+
+                    let asks: Vec<(f64, f64)> = orderbook
+                        .asks
+                        .iter()
                         .take(10)
                         .map(|level| (level.price, level.size))
                         .collect();
-                    
-                    let runner_name = runner_names.get(runner_id_str)
+
+                    let runner_name = runner_names
+                        .get(runner_id_str)
                         .cloned()
                         .unwrap_or_else(|| format!("Runner {runner_id}"));
-                    
+
                     runner_books.push(RunnerOrderBook {
                         runner_id,
                         runner_name,
@@ -478,60 +496,70 @@ impl App {
                         prev_best_ask: None,
                     });
                 }
-                
+
                 // Sort runners by ID for consistent ordering
                 runner_books.sort_by_key(|r| r.runner_id);
-                
+
                 self.current_orderbook = Some(OrderBookData {
                     market_id: market_id.to_string(),
                     runners: runner_books,
                 });
-                
-                if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
+
+                if self.selected_runner.is_none()
+                    && !self.current_orderbook.as_ref().unwrap().runners.is_empty()
+                {
                     self.selected_runner = Some(0);
                 }
-                
+
                 return Ok(());
             }
         }
-        
+
         // Fall back to polling if streaming not available or failed
         if let Some(client) = &mut self.api_client {
             let market_books = client.get_odds(market_id.to_string()).await?;
-            
+
             if let Some(market_book) = market_books.first() {
                 if let Some(runners) = &market_book.runners {
                     let mut runner_books = vec![];
-                    
+
                     for runner in runners {
                         let mut bids = vec![];
                         let mut asks = vec![];
-                        
+
                         if let Some(ex) = &runner.ex {
                             if let Some(back_prices) = &ex.available_to_back {
-                                bids = back_prices.iter()
+                                bids = back_prices
+                                    .iter()
                                     .take(10)
                                     .map(|p| (p.price, p.size))
                                     .collect();
                             }
                             if let Some(lay_prices) = &ex.available_to_lay {
-                                asks = lay_prices.iter()
+                                asks = lay_prices
+                                    .iter()
                                     .take(10)
                                     .map(|p| (p.price, p.size))
                                     .collect();
                             }
                         }
-                        
-                        let runner_name = runner_names.get(&runner.selection_id.to_string())
+
+                        let runner_name = runner_names
+                            .get(&runner.selection_id.to_string())
                             .cloned()
                             .or_else(|| {
-                                self.markets.iter()
+                                self.markets
+                                    .iter()
                                     .find(|m| m.id == market_id)
-                                    .and_then(|m| m.runners.iter().find(|r| r.id as i64 == runner.selection_id))
+                                    .and_then(|m| {
+                                        m.runners
+                                            .iter()
+                                            .find(|r| r.id as i64 == runner.selection_id)
+                                    })
                                     .map(|r| r.name.clone())
                             })
                             .unwrap_or_else(|| format!("Runner {}", runner.selection_id));
-                        
+
                         runner_books.push(RunnerOrderBook {
                             runner_id: runner.selection_id as u64,
                             runner_name,
@@ -545,16 +573,18 @@ impl App {
                             prev_best_ask: None,
                         });
                     }
-                    
+
                     // Sort runners by ID for consistent ordering
                     runner_books.sort_by_key(|r| r.runner_id);
-                    
+
                     self.current_orderbook = Some(OrderBookData {
                         market_id: market_id.to_string(),
                         runners: runner_books,
                     });
-                    
-                    if self.selected_runner.is_none() && !self.current_orderbook.as_ref().unwrap().runners.is_empty() {
+
+                    if self.selected_runner.is_none()
+                        && !self.current_orderbook.as_ref().unwrap().runners.is_empty()
+                    {
                         self.selected_runner = Some(0);
                     }
                 }
@@ -562,16 +592,18 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn load_account_info(&mut self) -> Result<()> {
         if let Some(client) = &mut self.api_client {
-            let funds = client.get_account_funds(GetAccountFundsRequest { wallet: None }).await?;
+            let funds = client
+                .get_account_funds(GetAccountFundsRequest { wallet: None })
+                .await?;
             self.available_balance = funds.available_to_bet_balance;
             self.exposure = funds.exposure;
         }
         Ok(())
     }
-    
+
     async fn load_active_orders(&mut self) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             let request = ListCurrentOrdersRequest {
@@ -586,17 +618,18 @@ impl App {
                 from_record: None,
                 record_count: Some(50),
             };
-            
+
             let response = client.list_current_orders(request).await?;
-            
+
             // Collect unique market IDs to fetch market details
-            let market_ids: Vec<String> = response.current_orders
+            let market_ids: Vec<String> = response
+                .current_orders
                 .iter()
                 .map(|o| o.market_id.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
                 .collect();
-            
+
             // Fetch market details for enrichment
             let mut market_details = std::collections::HashMap::new();
             for market_id in market_ids {
@@ -622,8 +655,9 @@ impl App {
                     }
                 }
             }
-            
-            self.active_orders = response.current_orders
+
+            self.active_orders = response
+                .current_orders
                 .into_iter()
                 .map(|o| {
                     let market = market_details.get(&o.market_id);
@@ -641,10 +675,12 @@ impl App {
                         .unwrap_or_else(|| "Unknown".to_string());
                     let runner_name = market
                         .and_then(|m| m.runners.as_ref())
-                        .and_then(|runners| runners.iter().find(|r| r.selection_id == o.selection_id))
+                        .and_then(|runners| {
+                            runners.iter().find(|r| r.selection_id == o.selection_id)
+                        })
                         .map(|r| r.runner_name.clone())
                         .unwrap_or_else(|| format!("Runner {}", o.selection_id));
-                    
+
                     Order {
                         bet_id: o.bet_id,
                         market_id: o.market_id,
@@ -666,29 +702,30 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn place_order(&mut self) -> Result<()> {
         // Validate inputs first
         if self.order_market_id.is_empty() {
             self.error_message = Some("No market selected".to_string());
             return Ok(());
         }
-        
+
         if self.order_selection_id.is_empty() {
-            self.error_message = Some("No runner selected. Press 1-9 in Order Book to select".to_string());
+            self.error_message =
+                Some("No runner selected. Press 1-9 in Order Book to select".to_string());
             return Ok(());
         }
-        
+
         if self.order_price.is_empty() {
             self.error_message = Some("Price is required".to_string());
             return Ok(());
         }
-        
+
         if self.order_size.is_empty() {
             self.error_message = Some("Stake is required".to_string());
             return Ok(());
         }
-        
+
         if let Some(client) = &mut self.api_client {
             let price: f64 = match self.order_price.parse() {
                 Ok(p) => p,
@@ -697,7 +734,7 @@ impl App {
                     return Ok(());
                 }
             };
-            
+
             let size: f64 = match self.order_size.parse() {
                 Ok(s) => s,
                 Err(_) => {
@@ -705,26 +742,27 @@ impl App {
                     return Ok(());
                 }
             };
-            
+
             let selection_id: i64 = match self.order_selection_id.parse() {
                 Ok(id) => id,
                 Err(_) => {
-                    self.error_message = Some(format!("Invalid selection ID: {}", self.order_selection_id));
+                    self.error_message =
+                        Some(format!("Invalid selection ID: {}", self.order_selection_id));
                     return Ok(());
                 }
             };
-            
+
             // Validate price and size ranges
             if !(1.01..=1000.0).contains(&price) {
                 self.error_message = Some("Price must be between 1.01 and 1000".to_string());
                 return Ok(());
             }
-            
+
             if size < 2.0 {
                 self.error_message = Some("Minimum stake is £2".to_string());
                 return Ok(());
             }
-            
+
             let instruction = PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id,
@@ -743,7 +781,7 @@ impl App {
                 market_on_close_order: None,
                 customer_order_ref: None,
             };
-            
+
             let request = PlaceOrdersRequest {
                 market_id: self.order_market_id.clone(),
                 instructions: vec![instruction],
@@ -752,16 +790,24 @@ impl App {
                 customer_strategy_ref: None,
                 async_: None,
             };
-            
+
             let response = client.place_orders(request).await?;
-            
+
             if response.status == "SUCCESS" {
-                self.status_message = format!("Order placed: {} £{:.2} @ {:.2} on {}", 
-                    if matches!(self.order_side, Side::Back) { "Back" } else { "Lay" },
-                    size, price, self.order_runner_name);
+                self.status_message = format!(
+                    "Order placed: {} £{:.2} @ {:.2} on {}",
+                    if matches!(self.order_side, Side::Back) {
+                        "Back"
+                    } else {
+                        "Lay"
+                    },
+                    size,
+                    price,
+                    self.order_runner_name
+                );
                 self.load_active_orders().await?;
                 self.load_account_info().await?;
-                
+
                 // Clear order form
                 self.order_price.clear();
                 self.order_size.clear();
@@ -788,7 +834,7 @@ impl App {
         }
         Ok(())
     }
-    
+
     async fn cancel_order(&mut self, bet_id: &str) -> Result<()> {
         if let Some(client) = &mut self.api_client {
             if let Some(order) = self.active_orders.iter().find(|o| o.bet_id == bet_id) {
@@ -796,15 +842,15 @@ impl App {
                     bet_id: bet_id.to_string(),
                     size_reduction: None,
                 };
-                
+
                 let request = CancelOrdersRequest {
                     market_id: order.market_id.clone(),
                     instructions: vec![instruction],
                     customer_ref: None,
                 };
-                
+
                 let response = client.cancel_orders(request).await?;
-                
+
                 if response.status == "SUCCESS" {
                     self.status_message = "Order cancelled successfully".to_string();
                     self.load_active_orders().await?;
@@ -816,7 +862,7 @@ impl App {
         }
         Ok(())
     }
-    
+
     fn next_panel(&mut self) {
         self.active_panel = match self.active_panel {
             Panel::MarketBrowser => Panel::OrderBook,
@@ -825,7 +871,7 @@ impl App {
             Panel::OrderEntry => Panel::MarketBrowser,
         };
     }
-    
+
     fn prev_panel(&mut self) {
         self.active_panel = match self.active_panel {
             Panel::MarketBrowser => Panel::OrderEntry,
@@ -834,22 +880,25 @@ impl App {
             Panel::OrderEntry => Panel::ActiveOrders,
         };
     }
-    
+
     fn update_orderbook_from_streaming(&mut self) {
         // Update current orderbook display from streaming data if available
         if self.streaming_connected {
             if let Some(market_id) = &self.current_streaming_market {
                 // Check for market-level update time
                 if let Some(streaming_client) = &self.streaming_client {
-                    if let Some(market_update_time) = streaming_client.get_last_update_time(market_id) {
+                    if let Some(market_update_time) =
+                        streaming_client.get_last_update_time(market_id)
+                    {
                         self.last_streaming_update = Some(market_update_time);
                     }
                 }
-                
+
                 let orderbooks = self.streaming_orderbooks.read().unwrap();
                 if let Some(market_orderbooks) = orderbooks.get(market_id) {
                     // Update status to show we're receiving streaming data
-                    self.status_message = format!("Streaming {} runners active", market_orderbooks.len());
+                    self.status_message =
+                        format!("Streaming {} runners active", market_orderbooks.len());
                     if let Some(current_ob) = &mut self.current_orderbook {
                         // Only update if we have the same market
                         if current_ob.market_id == *market_id {
@@ -859,15 +908,19 @@ impl App {
                                 let runner_id_str = runner.runner_id.to_string();
                                 if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
                                     // Check if data actually changed
-                                    let new_bids: Vec<(f64, f64)> = streaming_ob.bids.iter()
+                                    let new_bids: Vec<(f64, f64)> = streaming_ob
+                                        .bids
+                                        .iter()
                                         .take(10)
                                         .map(|level| (level.price, level.size))
                                         .collect();
-                                    let new_asks: Vec<(f64, f64)> = streaming_ob.asks.iter()
+                                    let new_asks: Vec<(f64, f64)> = streaming_ob
+                                        .asks
+                                        .iter()
                                         .take(10)
                                         .map(|level| (level.price, level.size))
                                         .collect();
-                                    
+
                                     if new_bids != runner.bids || new_asks != runner.asks {
                                         data_updated = true;
                                         // Track previous best prices for change detection
@@ -880,7 +933,7 @@ impl App {
                                     runner.is_streaming = true;
                                 }
                             }
-                            
+
                             if data_updated {
                                 self.last_streaming_update = Some(Instant::now());
                             }
@@ -889,7 +942,8 @@ impl App {
                 } else {
                     // No streaming data available
                     if let Some(market_id) = &self.current_streaming_market {
-                        self.status_message = format!("Waiting for streaming data for market {}", market_id);
+                        self.status_message =
+                            format!("Waiting for streaming data for market {market_id}");
                     }
                 }
             }
@@ -907,38 +961,38 @@ fn ui(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
-            Constraint::Length(2),  // Shortcuts bar
+            Constraint::Length(2), // Shortcuts bar
         ])
         .split(f.area());
-    
+
     // Main area split into 2x2 grid
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[0]);
-    
+
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[0]);
-    
+
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[1]);
-    
+
     // Render Market Browser
     render_market_browser(f, left_chunks[0], app);
-    
+
     // Render Order Book
     render_order_book(f, right_chunks[0], app);
-    
+
     // Render Active Orders
     render_active_orders(f, left_chunks[1], app);
-    
+
     // Render Order Entry
     render_order_entry(f, right_chunks[1], app);
-    
+
     // Render Shortcuts Bar with status info
     render_shortcuts_bar(f, chunks[1], app);
 }
@@ -956,7 +1010,7 @@ fn get_selection_key(index: usize) -> String {
 fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::MarketBrowser);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
-    
+
     // Build breadcrumb
     let mut breadcrumb = String::from(" Market Browser");
     if let Some(sport_idx) = app.selected_sport {
@@ -975,74 +1029,101 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
         }
     }
     breadcrumb.push(' ');
-    
+
     let block = Block::default()
         .title(breadcrumb)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
-    
+
     let inner = block.inner(area);
-    
+
     // Create list items based on current navigation level with selection keys
     // Priority: markets > events > competitions > sports
     let items: Vec<ListItem> = if !app.markets.is_empty() {
         // Show markets
-        app.markets.iter().enumerate().map(|(idx, market)| {
-            let key = get_selection_key(idx);
-            let is_selected = app.selected_market == Some(idx);
-            let style = if is_selected {
-                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("[{}] {:<28} £{:.0}", key, market.name, market.total_matched))
+        app.markets
+            .iter()
+            .enumerate()
+            .map(|(idx, market)| {
+                let key = get_selection_key(idx);
+                let is_selected = app.selected_market == Some(idx);
+                let style = if is_selected {
+                    Style::default()
+                        .bg(Color::Yellow)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!(
+                    "[{}] {:<28} £{:.0}",
+                    key, market.name, market.total_matched
+                ))
                 .style(style)
-        }).collect()
+            })
+            .collect()
     } else if !app.events.is_empty() {
         // Show events
-        app.events.iter().enumerate().map(|(idx, (_id, name, count))| {
-            let key = get_selection_key(idx);
-            let is_selected = app.selected_event == Some(idx);
-            let style = if is_selected {
-                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
-                .style(style)
-        }).collect()
+        app.events
+            .iter()
+            .enumerate()
+            .map(|(idx, (_id, name, count))| {
+                let key = get_selection_key(idx);
+                let is_selected = app.selected_event == Some(idx);
+                let style = if is_selected {
+                    Style::default()
+                        .bg(Color::Yellow)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!("[{key}] {name:<38} [{count} markets]")).style(style)
+            })
+            .collect()
     } else if !app.competitions.is_empty() {
         // Show competitions
-        app.competitions.iter().enumerate().map(|(idx, (_id, name, count))| {
-            let key = get_selection_key(idx);
-            let is_selected = app.selected_competition == Some(idx);
-            let style = if is_selected {
-                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
-                .style(style)
-        }).collect()
+        app.competitions
+            .iter()
+            .enumerate()
+            .map(|(idx, (_id, name, count))| {
+                let key = get_selection_key(idx);
+                let is_selected = app.selected_competition == Some(idx);
+                let style = if is_selected {
+                    Style::default()
+                        .bg(Color::Yellow)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!("[{key}] {name:<38} [{count} markets]")).style(style)
+            })
+            .collect()
     } else {
         // Show sports (default)
-        app.sports.iter().enumerate().map(|(idx, (_id, name, count))| {
-            let key = get_selection_key(idx);
-            let is_selected = app.selected_sport == Some(idx);
-            let style = if is_selected {
-                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("[{key}] {name:<38} [{count} markets]"))
-                .style(style)
-        }).collect()
+        app.sports
+            .iter()
+            .enumerate()
+            .map(|(idx, (_id, name, count))| {
+                let key = get_selection_key(idx);
+                let is_selected = app.selected_sport == Some(idx);
+                let style = if is_selected {
+                    Style::default()
+                        .bg(Color::Yellow)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!("[{key}] {name:<38} [{count} markets]")).style(style)
+            })
+            .collect()
     };
-    
-    let list = List::new(items)
-        .block(Block::default());
-    
+
+    let list = List::new(items).block(Block::default());
+
     f.render_widget(block, area);
     f.render_widget(list, inner);
 }
@@ -1050,26 +1131,27 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
 fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::OrderBook);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
-    
+
     // Include selected market name and streaming status in title
     let title = if let Some(market_idx) = app.selected_market {
         if let Some(market) = app.markets.get(market_idx) {
-            let streaming_indicator = if app.streaming_connected && app.current_streaming_market.is_some() {
-                if let Some(last_update) = app.last_streaming_update {
-                    let elapsed = last_update.elapsed();
-                    if elapsed.as_secs() < 2 {
-                        " [LIVE •]"  // Solid dot indicates recent update
-                    } else if elapsed.as_secs() < 10 {
-                        " [LIVE ◦]"  // Hollow dot indicates connected but no recent updates
+            let streaming_indicator =
+                if app.streaming_connected && app.current_streaming_market.is_some() {
+                    if let Some(last_update) = app.last_streaming_update {
+                        let elapsed = last_update.elapsed();
+                        if elapsed.as_secs() < 2 {
+                            " [LIVE •]" // Solid dot indicates recent update
+                        } else if elapsed.as_secs() < 10 {
+                            " [LIVE ◦]" // Hollow dot indicates connected but no recent updates
+                        } else {
+                            " [LIVE ?]" // Question mark indicates possibly stale
+                        }
                     } else {
-                        " [LIVE ?]"  // Question mark indicates possibly stale
+                        " [LIVE -]" // Dash indicates waiting for first update
                     }
                 } else {
-                    " [LIVE -]"  // Dash indicates waiting for first update
-                }
-            } else {
-                " [POLL]"
-            };
+                    " [POLL]"
+                };
             format!(" Order Book - {}{} ", market.name, streaming_indicator)
         } else {
             " Order Book ".to_string()
@@ -1077,16 +1159,16 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     } else {
         " Order Book ".to_string()
     };
-    
+
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
-    
+
     if let Some(orderbook) = &app.current_orderbook {
         let inner = block.inner(area);
-        
+
         // Add update timestamp if streaming
         let mut update_info = String::new();
         if app.streaming_connected {
@@ -1097,58 +1179,91 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                 update_info = "Waiting for streaming data... | ".to_string();
             }
         }
-        
+
         // Split area into sections for each runner
         let num_runners = orderbook.runners.len().min(4); // Show max 4 runners
         if num_runners == 0 {
-            let text = Paragraph::new(format!("{}No runners available", update_info))
+            let text = Paragraph::new(format!("{update_info}No runners available"))
                 .block(block)
                 .alignment(Alignment::Center);
             f.render_widget(text, area);
             return;
         }
-        
+
         let runner_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
                 (0..num_runners)
                     .map(|_| Constraint::Ratio(1, num_runners as u32))
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
             )
             .split(inner);
-        
+
         // Render each runner's orderbook
-        for (idx, (runner, chunk)) in orderbook.runners.iter().zip(runner_chunks.iter()).enumerate() {
+        for (idx, (runner, chunk)) in orderbook
+            .runners
+            .iter()
+            .zip(runner_chunks.iter())
+            .enumerate()
+        {
             let is_selected = app.selected_runner == Some(idx);
             let runner_style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
-            
+
             // Create runner header with selection key - show both name and ID
             let key = get_selection_key(idx);
-            let runner_title = format!("[{}] {} (ID: {})", key, runner.runner_name, runner.runner_id);
-            
+            let runner_title = format!(
+                "[{}] {} (ID: {})",
+                key, runner.runner_name, runner.runner_id
+            );
+
             // Create order book rows for this runner
             let mut rows = vec![];
             let max_levels = std::cmp::max(runner.bids.len(), runner.asks.len()).min(3); // Show max 3 levels per runner
-            
+
             for i in 0..max_levels {
-                let bid_price = runner.bids.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
-                let bid_size = runner.bids.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
-                let ask_price = runner.asks.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
-                let ask_size = runner.asks.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
-                
+                let bid_price = runner
+                    .bids
+                    .get(i)
+                    .map(|(p, _)| format!("{p:.2}"))
+                    .unwrap_or_default();
+                let bid_size = runner
+                    .bids
+                    .get(i)
+                    .map(|(_, s)| format!("{s:.0}"))
+                    .unwrap_or_default();
+                let ask_price = runner
+                    .asks
+                    .get(i)
+                    .map(|(p, _)| format!("{p:.2}"))
+                    .unwrap_or_default();
+                let ask_size = runner
+                    .asks
+                    .get(i)
+                    .map(|(_, s)| format!("{s:.0}"))
+                    .unwrap_or_default();
+
                 // Highlight best prices that have recently changed
                 let bid_style = if i == 0 && runner.is_streaming {
-                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = 
-                        (runner.last_update, runner.bids.get(0).map(|(p, _)| *p), runner.prev_best_bid) {
+                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = (
+                        runner.last_update,
+                        runner.bids.first().map(|(p, _)| *p),
+                        runner.prev_best_bid,
+                    ) {
                         if last_update.elapsed().as_millis() < 500 {
                             if curr_price > prev_price {
-                                Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+                                Style::default()
+                                    .fg(Color::LightGreen)
+                                    .add_modifier(Modifier::BOLD)
                             } else if curr_price < prev_price {
-                                Style::default().fg(Color::Green).add_modifier(Modifier::DIM)
+                                Style::default()
+                                    .fg(Color::Green)
+                                    .add_modifier(Modifier::DIM)
                             } else {
                                 Style::default().fg(Color::Green)
                             }
@@ -1161,13 +1276,18 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                 } else {
                     Style::default().fg(Color::Green)
                 };
-                
+
                 let ask_style = if i == 0 && runner.is_streaming {
-                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = 
-                        (runner.last_update, runner.asks.get(0).map(|(p, _)| *p), runner.prev_best_ask) {
+                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = (
+                        runner.last_update,
+                        runner.asks.first().map(|(p, _)| *p),
+                        runner.prev_best_ask,
+                    ) {
                         if last_update.elapsed().as_millis() < 500 {
                             if curr_price < prev_price {
-                                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
+                                Style::default()
+                                    .fg(Color::LightRed)
+                                    .add_modifier(Modifier::BOLD)
                             } else if curr_price > prev_price {
                                 Style::default().fg(Color::Red).add_modifier(Modifier::DIM)
                             } else {
@@ -1182,7 +1302,7 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                 } else {
                     Style::default().fg(Color::Red)
                 };
-                
+
                 rows.push(Row::new(vec![
                     Cell::from(bid_size).style(bid_style),
                     Cell::from(bid_price).style(bid_style),
@@ -1190,12 +1310,12 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                     Cell::from(ask_size).style(ask_style),
                 ]));
             }
-            
+
             let runner_block = Block::default()
                 .title(runner_title)
                 .borders(Borders::TOP)
                 .border_style(runner_style);
-            
+
             if rows.is_empty() {
                 let no_prices = Paragraph::new("No prices available")
                     .block(runner_block)
@@ -1210,16 +1330,18 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                         Constraint::Percentage(25),
                         Constraint::Percentage(25),
                         Constraint::Percentage(25),
-                    ]
+                    ],
                 )
-                .header(Row::new(vec!["Size", "Back", "Lay", "Size"])
-                    .style(Style::default().add_modifier(Modifier::BOLD)))
+                .header(
+                    Row::new(vec!["Size", "Back", "Lay", "Size"])
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                )
                 .block(runner_block);
-                
+
                 f.render_widget(table, *chunk);
             }
         }
-        
+
         f.render_widget(block, area);
     } else {
         let text = Paragraph::new("Select a market to view order book")
@@ -1232,72 +1354,93 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
 fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::ActiveOrders);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
-    
+
     let block = Block::default()
-        .title(format!(" Active Orders ({}) - Press 'c' to cancel selected ", app.active_orders.len()))
+        .title(format!(
+            " Active Orders ({}) - Press 'c' to cancel selected ",
+            app.active_orders.len()
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
-    
+
     if !app.active_orders.is_empty() {
         let inner = block.inner(area);
-        
-        let rows: Vec<Row> = app.active_orders.iter().enumerate().map(|(index, order)| {
-            let side_color = match order.side {
-                Side::Back => Color::Green,
-                Side::Lay => Color::Red,
-            };
-            
-            let key = get_selection_key(index);
-            
-            // Truncate long names to fit
-            let comp_name: String = order.competition_name.chars().take(15).collect();
-            let event_name: String = order.event_name.chars().take(20).collect();
-            let runner_name: String = order.runner_name.chars().take(15).collect();
-            
-            Row::new(vec![
-                Cell::from(format!("[{key}]")).style(Style::default().fg(Color::Yellow)),
-                Cell::from(comp_name),
-                Cell::from(event_name),
-                Cell::from(order.market_type.clone()),
-                Cell::from(runner_name),
-                Cell::from(format!("{:?}", order.side)).style(Style::default().fg(side_color)),
-                Cell::from(format!("{:.2}", order.price)),
-                Cell::from(format!("£{:.2}", order.size)),
-                Cell::from(format!("£{:.2}", order.size_matched)),
-                Cell::from(order.status.clone()),
-            ])
-        }).collect();
-        
+
+        let rows: Vec<Row> = app
+            .active_orders
+            .iter()
+            .enumerate()
+            .map(|(index, order)| {
+                let side_color = match order.side {
+                    Side::Back => Color::Green,
+                    Side::Lay => Color::Red,
+                };
+
+                let key = get_selection_key(index);
+
+                // Truncate long names to fit
+                let comp_name: String = order.competition_name.chars().take(15).collect();
+                let event_name: String = order.event_name.chars().take(20).collect();
+                let runner_name: String = order.runner_name.chars().take(15).collect();
+
+                Row::new(vec![
+                    Cell::from(format!("[{key}]")).style(Style::default().fg(Color::Yellow)),
+                    Cell::from(comp_name),
+                    Cell::from(event_name),
+                    Cell::from(order.market_type.clone()),
+                    Cell::from(runner_name),
+                    Cell::from(format!("{:?}", order.side)).style(Style::default().fg(side_color)),
+                    Cell::from(format!("{:.2}", order.price)),
+                    Cell::from(format!("£{:.2}", order.size)),
+                    Cell::from(format!("£{:.2}", order.size_matched)),
+                    Cell::from(order.status.clone()),
+                ])
+            })
+            .collect();
+
         // Create a stateful table with proper selection
         let mut table_state = TableState::default();
         table_state.select(app.selected_order);
-        
+
         let table = Table::new(
             rows,
             [
-                Constraint::Length(4),   // Key
-                Constraint::Length(15),  // Competition
-                Constraint::Length(20),  // Event
-                Constraint::Length(12),  // Market Type
-                Constraint::Length(15),  // Runner
-                Constraint::Length(5),   // Side
-                Constraint::Length(7),   // Price
-                Constraint::Length(8),   // Size
-                Constraint::Length(8),   // Matched
-                Constraint::Length(10),  // Status
-            ]
+                Constraint::Length(4),  // Key
+                Constraint::Length(15), // Competition
+                Constraint::Length(20), // Event
+                Constraint::Length(12), // Market Type
+                Constraint::Length(15), // Runner
+                Constraint::Length(5),  // Side
+                Constraint::Length(7),  // Price
+                Constraint::Length(8),  // Size
+                Constraint::Length(8),  // Matched
+                Constraint::Length(10), // Status
+            ],
         )
-        .header(Row::new(vec!["Key", "Competition", "Event", "Market", "Runner", "Side", "Price", "Size", "Matched", "Status"])
-            .style(Style::default().add_modifier(Modifier::BOLD)))
+        .header(
+            Row::new(vec![
+                "Key",
+                "Competition",
+                "Event",
+                "Market",
+                "Runner",
+                "Side",
+                "Price",
+                "Size",
+                "Matched",
+                "Status",
+            ])
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+        )
         .block(Block::default())
         .highlight_style(
             Style::default()
                 .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-                .fg(Color::Yellow)
+                .fg(Color::Yellow),
         )
         .highlight_symbol("► ");
-        
+
         f.render_widget(block, area);
         f.render_stateful_widget(table, inner, &mut table_state);
     } else {
@@ -1311,15 +1454,15 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
 fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     let is_active = matches!(app.active_panel, Panel::OrderEntry);
     let border_color = if is_active { Color::Cyan } else { Color::Gray };
-    
+
     let block = Block::default()
         .title(" Order Entry ")
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
-    
+
     let inner = block.inner(area);
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -1332,16 +1475,19 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
             Constraint::Min(1),
         ])
         .split(inner);
-    
+
     // Market ID
     let market_text = format!("Market: {}", app.order_market_id);
     f.render_widget(Paragraph::new(market_text), chunks[0]);
-    
+
     // Runner selection
     let runner_text = if app.order_runner_name.is_empty() {
         "Runner: (Press 1-9 in Order Book to select)".to_string()
     } else {
-        format!("Runner: {} (ID: {})", app.order_runner_name, app.order_selection_id)
+        format!(
+            "Runner: {} (ID: {})",
+            app.order_runner_name, app.order_selection_id
+        )
     };
     let runner_style = if app.order_runner_name.is_empty() {
         Style::default().fg(Color::DarkGray)
@@ -1349,7 +1495,7 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::Cyan)
     };
     f.render_widget(Paragraph::new(runner_text).style(runner_style), chunks[1]);
-    
+
     // Side selection
     let side_text = format!("Side: {:?}", app.order_side);
     let side_color = match app.order_side {
@@ -1358,27 +1504,31 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(
         Paragraph::new(side_text).style(Style::default().fg(side_color)),
-        chunks[2]
+        chunks[2],
     );
-    
+
     // Price input
     let price_text = format!("Price: {}", app.order_price);
     let price_style = if app.order_field_focus == OrderField::Price {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
     f.render_widget(Paragraph::new(price_text).style(price_style), chunks[3]);
-    
+
     // Size input
     let size_text = format!("Stake: £{}", app.order_size);
     let size_style = if app.order_field_focus == OrderField::Size {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
     f.render_widget(Paragraph::new(size_text).style(size_style), chunks[4]);
-    
+
     // Instructions
     let instructions = if is_active {
         "Enter: Place | Tab: Next Field | B/L: Toggle Side | Esc: Cancel"
@@ -1386,37 +1536,41 @@ fn render_order_entry(f: &mut Frame, area: Rect, app: &App) {
         "Press 'o' to enter order mode | Select runner in Order Book (1-9)"
     };
     f.render_widget(
-        Paragraph::new(instructions)
-            .style(Style::default().fg(Color::DarkGray)),
-        chunks[5]
+        Paragraph::new(instructions).style(Style::default().fg(Color::DarkGray)),
+        chunks[5],
     );
-    
+
     f.render_widget(block, area);
 }
-
 
 fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
     // Split the bar into left (status) and right (shortcuts) sections
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(60),  // Status info (increased for error messages)
-            Constraint::Min(1),       // Shortcuts
+            Constraint::Length(60), // Status info (increased for error messages)
+            Constraint::Min(1),     // Shortcuts
         ])
         .split(area);
-    
+
     // Render status info on the left
     let mut status_parts = vec![];
-    
+
     // Show error or status message first if present
     if let Some(err) = &app.error_message {
-        status_parts.push(Span::styled(err, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+        status_parts.push(Span::styled(
+            err,
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
         status_parts.push(Span::raw(" | "));
     } else if !app.status_message.is_empty() && app.status_message != "Connected to Betfair" {
-        status_parts.push(Span::styled(&app.status_message, Style::default().fg(Color::Green)));
+        status_parts.push(Span::styled(
+            &app.status_message,
+            Style::default().fg(Color::Green),
+        ));
         status_parts.push(Span::raw(" | "));
     }
-    
+
     status_parts.extend(vec![
         if app.api_connected {
             Span::styled("●", Style::default().fg(Color::Green))
@@ -1424,65 +1578,67 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("●", Style::default().fg(Color::Red))
         },
         if app.streaming_connected {
-            Span::styled(" LIVE", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            Span::styled(
+                " LIVE",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled(" POLL", Style::default().fg(Color::DarkGray))
         },
         Span::raw(format!(" £{:.2}", app.available_balance)),
         Span::raw(format!(" [{} orders]", app.total_orders)),
     ]);
-    
+
     let status_line = Line::from(status_parts);
     f.render_widget(
-        Paragraph::new(status_line)
-            .style(Style::default().bg(Color::Black)),
-        chunks[0]
+        Paragraph::new(status_line).style(Style::default().bg(Color::Black)),
+        chunks[0],
     );
-    
+
     // Render shortcuts on the right
     let shortcuts = match app.mode {
-        AppMode::Browse => {
-            match app.active_panel {
-                Panel::MarketBrowser => {
-                    vec![
-                        ("↑↓/jk", "Navigate"),
-                        ("1-9/a-z", "Quick Select"),
-                        ("Enter", "Select"),
-                        ("Backspace", "Back"),
-                        ("Tab", "Next Panel"),
-                        ("o", "Order"),
-                        ("q", "Quit"),
-                    ]
-                },
-                Panel::OrderBook => {
-                    vec![
-                        ("↑↓/jk", "Navigate"),
-                        ("1-9", "Quick Select"),
-                        ("Tab", "Next Panel"),
-                        ("o", "Order"),
-                        ("r", "Refresh"),
-                        ("q", "Quit"),
-                    ]
-                },
-                Panel::ActiveOrders => {
-                    vec![
-                        ("↑↓/jk", "Navigate"),
-                        ("1-9/a-z", "Quick Select"),
-                        ("c/Enter", "Cancel"),
-                        ("Tab", "Next Panel"),
-                        ("o", "Order"),
-                        ("q", "Quit"),
-                    ]
-                },
-                Panel::OrderEntry => {
-                    vec![
-                        ("↑↓", "Switch Field"),
-                        ("Tab", "Next Panel"),
-                        ("o", "Order"),
-                        ("r", "Refresh"),
-                        ("q", "Quit"),
-                    ]
-                },
+        AppMode::Browse => match app.active_panel {
+            Panel::MarketBrowser => {
+                vec![
+                    ("↑↓/jk", "Navigate"),
+                    ("1-9/a-z", "Quick Select"),
+                    ("Enter", "Select"),
+                    ("Backspace", "Back"),
+                    ("Tab", "Next Panel"),
+                    ("o", "Order"),
+                    ("q", "Quit"),
+                ]
+            }
+            Panel::OrderBook => {
+                vec![
+                    ("↑↓/jk", "Navigate"),
+                    ("1-9", "Quick Select"),
+                    ("Tab", "Next Panel"),
+                    ("o", "Order"),
+                    ("r", "Refresh"),
+                    ("q", "Quit"),
+                ]
+            }
+            Panel::ActiveOrders => {
+                vec![
+                    ("↑↓/jk", "Navigate"),
+                    ("1-9/a-z", "Quick Select"),
+                    ("c/Enter", "Cancel"),
+                    ("Tab", "Next Panel"),
+                    ("o", "Order"),
+                    ("q", "Quit"),
+                ]
+            }
+            Panel::OrderEntry => {
+                vec![
+                    ("↑↓", "Switch Field"),
+                    ("Tab", "Next Panel"),
+                    ("o", "Order"),
+                    ("r", "Refresh"),
+                    ("q", "Quit"),
+                ]
             }
         },
         AppMode::Order => {
@@ -1492,22 +1648,24 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                 ("Esc", "Cancel"),
                 ("b/l", "Back/Lay"),
             ]
-        },
+        }
         AppMode::Help => {
-            vec![
-                ("Esc", "Close Help"),
-                ("q", "Quit"),
-            ]
-        },
+            vec![("Esc", "Close Help"), ("q", "Quit")]
+        }
         _ => vec![],
     };
-    
+
     let shortcuts_text: Vec<Span> = shortcuts
         .iter()
         .enumerate()
         .flat_map(|(i, (key, desc))| {
             let mut spans = vec![
-                Span::styled(*key, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    *key,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(":"),
                 Span::styled(*desc, Style::default().fg(Color::Gray)),
             ];
@@ -1517,11 +1675,11 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
             spans
         })
         .collect();
-    
+
     let shortcuts_paragraph = Paragraph::new(Line::from(shortcuts_text))
         .style(Style::default().bg(Color::Black))
         .alignment(Alignment::Right);
-    
+
     f.render_widget(shortcuts_paragraph, chunks[1]);
 }
 
@@ -1545,10 +1703,10 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
             if let Some(market) = app.markets.get(index) {
                 let market_id = market.id.clone();
                 let order_market_id = market.id.clone();
-                
+
                 app.load_orderbook(&market_id).await?;
                 app.order_market_id = order_market_id;
-                
+
                 // Set first runner as default
                 if let Some(orderbook) = &app.current_orderbook {
                     if let Some(first_runner) = orderbook.runners.first() {
@@ -1565,7 +1723,9 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
             // Load markets for selected event
             if let Some(event) = app.events.get(index) {
                 let event_id = event.0.clone();
-                let sport_id = app.selected_sport.and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
+                let sport_id = app
+                    .selected_sport
+                    .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                 if let Some(sport_id) = sport_id {
                     app.load_markets(&sport_id, Some(&event_id)).await?;
                     app.selected_market = None;
@@ -1578,23 +1738,24 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
             // Load events for selected competition
             if let Some(comp) = app.competitions.get(index) {
                 let comp_id = comp.0.clone();
-                let sport_id = app.selected_sport.and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
+                let sport_id = app
+                    .selected_sport
+                    .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                 if let Some(sport_id) = sport_id {
                     app.load_events(&sport_id, Some(&comp_id)).await?;
                     app.selected_event = None;
                 }
             }
         }
-    } else if !app.sports.is_empty()
-        && index < app.sports.len() {
-            app.selected_sport = Some(index);
-            // Load competitions for selected sport
-            if let Some(sport) = app.sports.get(index) {
-                let sport_id = sport.0.clone();
-                app.load_competitions(&sport_id).await?;
-                app.selected_competition = None;
-            }
+    } else if !app.sports.is_empty() && index < app.sports.len() {
+        app.selected_sport = Some(index);
+        // Load competitions for selected sport
+        if let Some(sport) = app.sports.get(index) {
+            let sport_id = sport.0.clone();
+            app.load_competitions(&sport_id).await?;
+            app.selected_competition = None;
         }
+    }
     Ok(())
 }
 
@@ -1608,7 +1769,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Char('o') => {
                     app.mode = AppMode::Order;
                     app.active_panel = Panel::OrderEntry;
-                    app.error_message = None;  // Clear any old errors
+                    app.error_message = None; // Clear any old errors
                 }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     app.load_account_info().await?;
@@ -1771,15 +1932,17 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                     if let Some(market) = app.markets.get(index) {
                                         let market_id = market.id.clone();
                                         let order_market_id = market.id.clone();
-                                        
+
                                         app.load_orderbook(&market_id).await?;
                                         app.order_market_id = order_market_id;
-                                        
+
                                         // Set first runner as default
                                         if let Some(orderbook) = &app.current_orderbook {
                                             if let Some(first_runner) = orderbook.runners.first() {
-                                                app.order_selection_id = first_runner.runner_id.to_string();
-                                                app.order_runner_name = first_runner.runner_name.clone();
+                                                app.order_selection_id =
+                                                    first_runner.runner_id.to_string();
+                                                app.order_runner_name =
+                                                    first_runner.runner_name.clone();
                                                 app.selected_runner = Some(0);
                                             }
                                         }
@@ -1790,10 +1953,16 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(index) = app.selected_event {
                                     if let Some(event) = app.events.get(index) {
                                         let event_id = event.0.clone();
-                                        let sport_id = app.selected_sport.and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
+                                        let sport_id = app
+                                            .selected_sport
+                                            .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                                         if let Some(sport_id) = sport_id {
                                             app.load_markets(&sport_id, Some(&event_id)).await?;
-                                            app.selected_market = if !app.markets.is_empty() { Some(0) } else { None };
+                                            app.selected_market = if !app.markets.is_empty() {
+                                                Some(0)
+                                            } else {
+                                                None
+                                            };
                                         }
                                     }
                                 }
@@ -1802,10 +1971,16 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(index) = app.selected_competition {
                                     if let Some(comp) = app.competitions.get(index) {
                                         let comp_id = comp.0.clone();
-                                        let sport_id = app.selected_sport.and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
+                                        let sport_id = app
+                                            .selected_sport
+                                            .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                                         if let Some(sport_id) = sport_id {
                                             app.load_events(&sport_id, Some(&comp_id)).await?;
-                                            app.selected_event = if !app.events.is_empty() { Some(0) } else { None };
+                                            app.selected_event = if !app.events.is_empty() {
+                                                Some(0)
+                                            } else {
+                                                None
+                                            };
                                         }
                                     }
                                 }
@@ -1815,7 +1990,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                     if let Some(sport) = app.sports.get(index) {
                                         let sport_id = sport.0.clone();
                                         app.load_competitions(&sport_id).await?;
-                                        app.selected_competition = if !app.competitions.is_empty() { Some(0) } else { None };
+                                        app.selected_competition = if !app.competitions.is_empty() {
+                                            Some(0)
+                                        } else {
+                                            None
+                                        };
                                     }
                                 }
                             }
@@ -1872,7 +2051,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 0).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if !app.active_orders.is_empty() { Some(0) } else { None };
+                        app.selected_order = if !app.active_orders.is_empty() {
+                            Some(0)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 0);
                     }
@@ -1881,7 +2064,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 1).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 1 { Some(1) } else { None };
+                        app.selected_order = if app.active_orders.len() > 1 {
+                            Some(1)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 1);
                     }
@@ -1890,7 +2077,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 2).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 2 { Some(2) } else { None };
+                        app.selected_order = if app.active_orders.len() > 2 {
+                            Some(2)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 2);
                     }
@@ -1899,7 +2090,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 3).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 3 { Some(3) } else { None };
+                        app.selected_order = if app.active_orders.len() > 3 {
+                            Some(3)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 3);
                     }
@@ -1908,7 +2103,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 4).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 4 { Some(4) } else { None };
+                        app.selected_order = if app.active_orders.len() > 4 {
+                            Some(4)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 4);
                     }
@@ -1917,7 +2116,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 5).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 5 { Some(5) } else { None };
+                        app.selected_order = if app.active_orders.len() > 5 {
+                            Some(5)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 5);
                     }
@@ -1926,7 +2129,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 6).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 6 { Some(6) } else { None };
+                        app.selected_order = if app.active_orders.len() > 6 {
+                            Some(6)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 6);
                     }
@@ -1935,7 +2142,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 7).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 7 { Some(7) } else { None };
+                        app.selected_order = if app.active_orders.len() > 7 {
+                            Some(7)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 7);
                     }
@@ -1944,7 +2155,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 8).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 8 { Some(8) } else { None };
+                        app.selected_order = if app.active_orders.len() > 8 {
+                            Some(8)
+                        } else {
+                            None
+                        };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 8);
                     }
@@ -1967,7 +2182,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, index).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         let index = 9 + (c as usize - 'a' as usize);
-                        app.selected_order = if app.active_orders.len() > index { Some(index) } else { None };
+                        app.selected_order = if app.active_orders.len() > index {
+                            Some(index)
+                        } else {
+                            None
+                        };
                     }
                 }
                 _ => {}
@@ -1978,7 +2197,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 KeyCode::Esc => {
                     app.mode = AppMode::Browse;
                     app.active_panel = Panel::MarketBrowser;
-                    app.error_message = None;  // Clear error on exit
+                    app.error_message = None; // Clear error on exit
                 }
                 KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
                     // Toggle between Price and Size fields (down moves forward)
@@ -2042,7 +2261,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
         }
         _ => {}
     }
-    
+
     Ok(false)
 }
 
@@ -2054,10 +2273,10 @@ async fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    
+
     // Create app
     let mut app = App::new();
-    
+
     // Initialize app (login, load initial data)
     if let Err(e) = app.init().await {
         // Restore terminal
@@ -2068,27 +2287,27 @@ async fn main() -> Result<()> {
             DisableMouseCapture
         )?;
         terminal.show_cursor()?;
-        
+
         eprintln!("Failed to initialize: {e}");
         return Err(e);
     }
-    
+
     // Main loop
     let mut last_refresh = Instant::now();
     let mut last_streaming_update = Instant::now();
     let refresh_interval = Duration::from_secs(30);
     let streaming_update_interval = Duration::from_millis(100); // Update streaming data every 100ms
-    
+
     loop {
         // Update orderbook from streaming data if available
         if app.streaming_connected && last_streaming_update.elapsed() > streaming_update_interval {
             app.update_orderbook_from_streaming();
             last_streaming_update = Instant::now();
         }
-        
+
         // Draw UI
         terminal.draw(|f| ui(f, &app))?;
-        
+
         // Handle events with timeout for periodic refresh
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
@@ -2097,7 +2316,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        
+
         // Periodic refresh for account and orders
         if last_refresh.elapsed() > refresh_interval {
             if let Err(e) = app.load_account_info().await {
@@ -2106,7 +2325,7 @@ async fn main() -> Result<()> {
             if let Err(e) = app.load_active_orders().await {
                 app.error_message = Some(format!("Refresh failed: {e}"));
             }
-            
+
             // If not streaming, also refresh orderbook
             if !app.streaming_connected && app.selected_market.is_some() {
                 if let Some(market) = app.selected_market.and_then(|idx| app.markets.get(idx)) {
@@ -2116,11 +2335,11 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            
+
             last_refresh = Instant::now();
         }
     }
-    
+
     // Restore terminal
     disable_raw_mode()?;
     execute!(
@@ -2129,6 +2348,6 @@ async fn main() -> Result<()> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-    
+
     Ok(())
 }

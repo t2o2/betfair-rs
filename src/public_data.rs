@@ -40,16 +40,17 @@ impl PublicDataClient {
 
     pub fn list_sports(&self) -> Result<Vec<Sport>> {
         let url = format!("{PUBLIC_API_URL}/listEventTypes/");
-        
-        let mut request = self.client
+
+        let mut request = self
+            .client
             .post(&url)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json");
-        
+
         if let Some(ref app_key) = self.app_key {
             request = request.header("X-Application", app_key);
         }
-        
+
         let mut response = request
             .json(&serde_json::json!({
                 "filter": {},
@@ -58,7 +59,9 @@ impl PublicDataClient {
             .send()?;
 
         if !response.status().is_success() {
-            let error_text = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow::anyhow!(
                 "Failed to fetch sports: HTTP {} - {}",
                 response.status(),

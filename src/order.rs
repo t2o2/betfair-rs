@@ -1,4 +1,4 @@
-// Re-export order DTOs from the dto module  
+// Re-export order DTOs from the dto module
 pub use crate::dto::order::*;
 
 // Note: Some legacy order structures may exist here temporarily for backward compatibility

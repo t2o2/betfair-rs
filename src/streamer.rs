@@ -170,7 +170,8 @@ impl BetfairStreamer {
     }
 
     pub fn create_order_subscription_message() -> String {
-        "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n".to_string()
+        "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n"
+            .to_string()
     }
 
     pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
@@ -399,41 +400,36 @@ impl BetfairStreamer {
     fn parse_market_change_message(&mut self, market_change_message: MarketChangeMessage) {
         for market_change in market_change_message.market_changes {
             let market_id = market_change.id;
-            let market_orderbooks = self
-                .orderbooks
-                .entry(market_id.clone())
-                .or_default();
+            let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_default();
 
             if let Some(runner_changes) = market_change.runner_changes {
                 for runner_change in runner_changes {
-                let runner_id = runner_change.id.to_string();
-                let orderbook = market_orderbooks
-                    .entry(runner_id.clone())
-                    .or_default();
-                if let Some(batb) = runner_change.available_to_back {
-                    for level in batb {
-                        if level.len() >= 3 {
-                            let level_index = level[0] as usize;
-                            let price = level[1];
-                            let size = level[2];
-                            orderbook.add_bid(level_index, price, size);
+                    let runner_id = runner_change.id.to_string();
+                    let orderbook = market_orderbooks.entry(runner_id.clone()).or_default();
+                    if let Some(batb) = runner_change.available_to_back {
+                        for level in batb {
+                            if level.len() >= 3 {
+                                let level_index = level[0] as usize;
+                                let price = level[1];
+                                let size = level[2];
+                                orderbook.add_bid(level_index, price, size);
+                            }
                         }
                     }
-                }
 
-                if let Some(batl) = runner_change.available_to_lay {
-                    for level in batl {
-                        if level.len() >= 3 {
-                            let level_index = level[0] as usize;
-                            let price = level[1];
-                            let size = level[2];
-                            orderbook.add_ask(level_index, price, size);
+                    if let Some(batl) = runner_change.available_to_lay {
+                        for level in batl {
+                            if level.len() >= 3 {
+                                let level_index = level[0] as usize;
+                                let price = level[1];
+                                let size = level[2];
+                                orderbook.add_ask(level_index, price, size);
+                            }
                         }
                     }
-                }
-                orderbook.set_ts(market_change_message.pt);
-                debug!("Orderbook for runner {}:", runner_id);
-                debug!("\n{}", orderbook.pretty_print());
+                    orderbook.set_ts(market_change_message.pt);
+                    debug!("Orderbook for runner {}:", runner_id);
+                    debug!("\n{}", orderbook.pretty_print());
                 }
             }
 

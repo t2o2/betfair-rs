@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::common::Wallet;
+use serde::{Deserialize, Serialize};
 
 // Legacy response format for account funds
 #[derive(Debug, Serialize, Deserialize, Clone)]

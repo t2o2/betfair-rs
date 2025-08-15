@@ -38,7 +38,6 @@ impl RetryPolicy {
         Self { config }
     }
 
-
     pub async fn retry<F, Fut, T>(&self, operation: F) -> Result<T>
     where
         F: Fn() -> Fut,

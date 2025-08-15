@@ -45,7 +45,7 @@ impl StreamingClient {
     pub fn get_orderbooks(&self) -> Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>> {
         self.orderbooks.clone()
     }
-    
+
     /// Get the last update time for a market
     pub fn get_last_update_time(&self, market_id: &str) -> Option<Instant> {
         self.last_update_times.read().ok()?.get(market_id).copied()
@@ -70,7 +70,7 @@ impl StreamingClient {
         let handle = tokio::spawn(async move {
             // Create and initialize the client
             let mut client = BetfairClient::new(config);
-            
+
             // Login
             if let Err(e) = client.login().await {
                 error!("Failed to login to streaming: {}", e);
@@ -105,12 +105,12 @@ impl StreamingClient {
             }
 
             info!("Connected to streaming service");
-            
+
             // Mark as connected
             if let Ok(mut connected) = is_connected.write() {
                 *connected = true;
             }
-            
+
             // Signal that we're ready
             let _ = ready_tx.send(Ok(()));
 
@@ -118,7 +118,7 @@ impl StreamingClient {
             let client = Arc::new(tokio::sync::Mutex::new(client));
             let client_for_commands = client.clone();
             let client_for_listening = client.clone();
-            
+
             // Spawn command handler task
             let cmd_handle = tokio::spawn(async move {
                 while let Some(cmd) = cmd_rx.recv().await {
@@ -126,7 +126,9 @@ impl StreamingClient {
                         StreamingCommand::Subscribe(market_id, levels) => {
                             info!("Subscribing to market {} with {} levels", market_id, levels);
                             let mut client = client_for_commands.lock().await;
-                            if let Err(e) = client.subscribe_to_markets(vec![market_id], levels).await {
+                            if let Err(e) =
+                                client.subscribe_to_markets(vec![market_id], levels).await
+                            {
                                 error!("Failed to subscribe to market: {}", e);
                             }
                         }
@@ -167,7 +169,7 @@ impl StreamingClient {
         });
 
         self.streaming_task = Some(handle);
-        
+
         // Wait for the ready signal
         match ready_rx.await {
             Ok(Ok(())) => {
@@ -188,7 +190,9 @@ impl StreamingClient {
     /// Subscribe to a market
     pub async fn subscribe_to_market(&self, market_id: String, levels: usize) -> Result<()> {
         if let Some(sender) = &self.command_sender {
-            sender.send(StreamingCommand::Subscribe(market_id, levels)).await?;
+            sender
+                .send(StreamingCommand::Subscribe(market_id, levels))
+                .await?;
         } else {
             return Err(anyhow::anyhow!("Streaming client not started"));
         }
@@ -198,7 +202,9 @@ impl StreamingClient {
     /// Unsubscribe from a market
     pub async fn unsubscribe_from_market(&self, market_id: String) -> Result<()> {
         if let Some(sender) = &self.command_sender {
-            sender.send(StreamingCommand::Unsubscribe(market_id)).await?;
+            sender
+                .send(StreamingCommand::Unsubscribe(market_id))
+                .await?;
         } else {
             return Err(anyhow::anyhow!("Streaming client not started"));
         }
@@ -210,11 +216,11 @@ impl StreamingClient {
         if let Some(sender) = &self.command_sender {
             sender.send(StreamingCommand::Stop).await?;
         }
-        
+
         if let Some(handle) = self.streaming_task.take() {
             handle.abort();
         }
-        
+
         Ok(())
     }
 

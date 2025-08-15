@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::dto::*;
 use crate::dto::rpc::LoginResponse;
+use crate::dto::*;
 use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
 use anyhow::Result;
@@ -465,30 +465,31 @@ impl BetfairApiClient {
     }
 
     /// List all available sports (event types)
-    /// 
+    ///
     /// # Arguments
     /// * `filter` - Optional market filter. If None, returns all sports.
     pub async fn list_sports(&self, filter: Option<MarketFilter>) -> Result<Vec<EventTypeResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
-            BETTING_URL, 
+            BETTING_URL,
             "SportsAPING/v1.0/listEventTypes",
             ListEventTypesRequest {
                 filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
-            }
-        ).await
+            },
+        )
+        .await
     }
 
     /// List events with optional filtering
-    /// 
+    ///
     /// # Arguments
     /// * `filter` - Optional market filter. Common filters:
     ///   - `event_type_ids`: Filter by sport IDs
     ///   - `competition_ids`: Filter by competition IDs  
     ///   - `market_countries`: Filter by country codes
     ///   - `in_play_only`: Only in-play events
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
@@ -509,22 +510,23 @@ impl BetfairApiClient {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
             BETTING_URL,
-            "SportsAPING/v1.0/listEvents", 
+            "SportsAPING/v1.0/listEvents",
             ListEventsRequest {
                 filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
-            }
-        ).await
+            },
+        )
+        .await
     }
 
     /// List competitions with optional filtering
-    /// 
+    ///
     /// # Arguments
     /// * `filter` - Optional market filter. Common filters:
     ///   - `event_type_ids`: Filter by sport IDs
     ///   - `market_countries`: Filter by country codes
     ///   - `competition_ids`: Specific competition IDs
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
@@ -542,7 +544,10 @@ impl BetfairApiClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn list_competitions(&self, filter: Option<MarketFilter>) -> Result<Vec<CompetitionResult>> {
+    pub async fn list_competitions(
+        &self,
+        filter: Option<MarketFilter>,
+    ) -> Result<Vec<CompetitionResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
         self.make_json_rpc_request(
             BETTING_URL,
@@ -550,15 +555,16 @@ impl BetfairApiClient {
             ListCompetitionsRequest {
                 filter: filter.unwrap_or_default(),
                 locale: Some("en".to_string()),
-            }
-        ).await
+            },
+        )
+        .await
     }
 
     /// List runners for a specific market
-    /// 
+    ///
     /// # Arguments
     /// * `market_id` - The market ID to get runners for
-    /// 
+    ///
     /// # Returns
     /// Returns the market catalogue with runner information including names, IDs, and metadata
     pub async fn list_runners(&self, market_id: &str) -> Result<Vec<MarketCatalogue>> {
@@ -578,7 +584,7 @@ impl BetfairApiClient {
             max_results: Some(1),
             locale: Some("en".to_string()),
         };
-        
+
         self.list_market_catalogue(request).await
     }
 }

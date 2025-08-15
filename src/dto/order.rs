@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
-use super::common::{OrderStatus, Side, OrderType, PersistenceType, TimeInForce, PriceSize, TimeRange, BetOutcome};
+use super::common::{
+    BetOutcome, OrderStatus, OrderType, PersistenceType, PriceSize, Side, TimeInForce, TimeRange,
+};
 use super::market::MarketVersion;
+use serde::{Deserialize, Serialize};
 
 // Simple order structure for placing orders
 #[derive(Debug, Serialize, Deserialize, Clone)]

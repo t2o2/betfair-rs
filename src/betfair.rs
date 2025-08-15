@@ -1,13 +1,12 @@
-use crate::dto::{
-    GetAccountFundsRequest, GetAccountFundsResponse, AccountFundsResponse,
-    CancelInstruction, CancelOrdersRequest, CancelOrdersResponse, 
-    JsonRpcRequest, JsonRpcResponse,
-    ListClearedOrdersRequest, ListClearedOrdersResponse, ListCurrentOrdersRequest,
-    ListCurrentOrdersResponse, PlaceOrdersRequest, PlaceOrdersResponse,
-    Order, OrderStatusResponse, Side,
-};
-use crate::dto::rpc::LoginResponse;
 use crate::config::Config;
+use crate::dto::rpc::LoginResponse;
+use crate::dto::{
+    AccountFundsResponse, CancelInstruction, CancelOrdersRequest, CancelOrdersResponse,
+    GetAccountFundsRequest, GetAccountFundsResponse, JsonRpcRequest, JsonRpcResponse,
+    ListClearedOrdersRequest, ListClearedOrdersResponse, ListCurrentOrdersRequest,
+    ListCurrentOrdersResponse, Order, OrderStatusResponse, PlaceOrdersRequest, PlaceOrdersResponse,
+    Side,
+};
 use crate::orderbook::Orderbook;
 use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
@@ -280,12 +279,8 @@ impl BetfairClient {
     {
         // Account requests are generally data requests
         self.rate_limiter.acquire_for_data().await?;
-        self.make_api_request(
-            ACCOUNT_URL,
-            &format!("AccountAPING/v1.0/{method}"),
-            params,
-        )
-        .await
+        self.make_api_request(ACCOUNT_URL, &format!("AccountAPING/v1.0/{method}"), params)
+            .await
     }
 
     pub async fn place_order(&self, order: Order) -> Result<PlaceOrdersResponse> {
@@ -307,7 +302,7 @@ impl BetfairClient {
     ) -> Result<CancelOrdersResponse> {
         let request = CancelOrdersRequest {
             market_id,
-            instructions: vec![CancelInstruction { 
+            instructions: vec![CancelInstruction {
                 bet_id,
                 size_reduction: None,
             }],
@@ -441,25 +436,25 @@ impl BetfairClient {
 
             for order in cleared_orders.cleared_orders {
                 if let Some(bet_id) = order.bet_id.clone() {
-                results.insert(
-                    bet_id.clone(),
-                    OrderStatusResponse {
-                        bet_id: bet_id.clone(),
-                        market_id: order.market_id.unwrap_or_default(),
-                        selection_id: order.selection_id.unwrap_or(0),
-                        side: order.side.unwrap_or(Side::Back),
-                        order_status: "SETTLED".to_string(),
-                        placed_date: order.placed_date,
-                        matched_date: order.settled_date,
-                        average_price_matched: order.price_matched,
-                        size_matched: order.size_settled,
-                        size_remaining: None,
-                        size_lapsed: None,
-                        size_cancelled: order.size_cancelled,
-                        size_voided: None,
-                        profit: order.profit,
-                    },
-                );
+                    results.insert(
+                        bet_id.clone(),
+                        OrderStatusResponse {
+                            bet_id: bet_id.clone(),
+                            market_id: order.market_id.unwrap_or_default(),
+                            selection_id: order.selection_id.unwrap_or(0),
+                            side: order.side.unwrap_or(Side::Back),
+                            order_status: "SETTLED".to_string(),
+                            placed_date: order.placed_date,
+                            matched_date: order.settled_date,
+                            average_price_matched: order.price_matched,
+                            size_matched: order.size_settled,
+                            size_remaining: None,
+                            size_lapsed: None,
+                            size_cancelled: order.size_cancelled,
+                            size_voided: None,
+                            profit: order.profit,
+                        },
+                    );
                 }
             }
         }

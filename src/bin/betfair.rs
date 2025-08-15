@@ -10,7 +10,7 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.mode.as_str() {
         "dashboard" => {
             // Include and run the dashboard code directly
@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
 // Include the dashboard module
 mod dashboard {
     include!("../../examples/dashboard.rs");
-    
+
     pub fn run() -> anyhow::Result<()> {
         main()
     }
