@@ -118,6 +118,9 @@ struct RunnerOrderBook {
     #[allow(dead_code)]
     total_matched: f64,
     is_streaming: bool,  // Flag to indicate if data is from streaming
+    last_update: Option<Instant>,  // Track when this runner was last updated
+    prev_best_bid: Option<f64>,  // Track previous best bid for change detection
+    prev_best_ask: Option<f64>,  // Track previous best ask for change detection
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +148,7 @@ struct App {
     current_orderbook: Option<OrderBookData>,
     selected_runner: Option<usize>,
     streaming_orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>, // market_id -> runner_id -> orderbook
+    last_streaming_update: Option<Instant>, // Track when we last received streaming data
     
     // Active orders state
     active_orders: Vec<Order>,
@@ -202,6 +206,7 @@ impl App {
             current_orderbook: None,
             selected_runner: None,
             streaming_orderbooks: Arc::new(RwLock::new(HashMap::new())),
+            last_streaming_update: None,
             
             active_orders: vec![],
             selected_order: None,
@@ -468,6 +473,9 @@ impl App {
                         last_traded: None,
                         total_matched: 0.0,
                         is_streaming: true,
+                        last_update: None,
+                        prev_best_bid: None,
+                        prev_best_ask: None,
                     });
                 }
                 
@@ -532,6 +540,9 @@ impl App {
                             last_traded: runner.last_price_traded,
                             total_matched: runner.total_matched.unwrap_or(0.0),
                             is_streaming: false,
+                            last_update: None,
+                            prev_best_bid: None,
+                            prev_best_ask: None,
                         });
                     }
                     
@@ -828,29 +839,64 @@ impl App {
         // Update current orderbook display from streaming data if available
         if self.streaming_connected {
             if let Some(market_id) = &self.current_streaming_market {
+                // Check for market-level update time
+                if let Some(streaming_client) = &self.streaming_client {
+                    if let Some(market_update_time) = streaming_client.get_last_update_time(market_id) {
+                        self.last_streaming_update = Some(market_update_time);
+                    }
+                }
+                
                 let orderbooks = self.streaming_orderbooks.read().unwrap();
                 if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                    // Update status to show we're receiving streaming data
+                    self.status_message = format!("Streaming {} runners active", market_orderbooks.len());
                     if let Some(current_ob) = &mut self.current_orderbook {
                         // Only update if we have the same market
                         if current_ob.market_id == *market_id {
+                            let mut data_updated = false;
                             // Update existing runners with streaming data
                             for runner in &mut current_ob.runners {
                                 let runner_id_str = runner.runner_id.to_string();
                                 if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
-                                    runner.bids = streaming_ob.bids.iter()
+                                    // Check if data actually changed
+                                    let new_bids: Vec<(f64, f64)> = streaming_ob.bids.iter()
                                         .take(10)
                                         .map(|level| (level.price, level.size))
                                         .collect();
-                                    runner.asks = streaming_ob.asks.iter()
+                                    let new_asks: Vec<(f64, f64)> = streaming_ob.asks.iter()
                                         .take(10)
                                         .map(|level| (level.price, level.size))
                                         .collect();
+                                    
+                                    if new_bids != runner.bids || new_asks != runner.asks {
+                                        data_updated = true;
+                                        // Track previous best prices for change detection
+                                        runner.prev_best_bid = runner.bids.first().map(|(p, _)| *p);
+                                        runner.prev_best_ask = runner.asks.first().map(|(p, _)| *p);
+                                        runner.bids = new_bids;
+                                        runner.asks = new_asks;
+                                        runner.last_update = Some(Instant::now());
+                                    }
                                     runner.is_streaming = true;
                                 }
                             }
+                            
+                            if data_updated {
+                                self.last_streaming_update = Some(Instant::now());
+                            }
                         }
                     }
+                } else {
+                    // No streaming data available
+                    if let Some(market_id) = &self.current_streaming_market {
+                        self.status_message = format!("Waiting for streaming data for market {}", market_id);
+                    }
                 }
+            }
+        } else {
+            // Streaming not connected
+            if self.current_orderbook.is_some() {
+                self.status_message = "Streaming not connected - showing static data".to_string();
             }
         }
     }
@@ -1009,9 +1055,20 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     let title = if let Some(market_idx) = app.selected_market {
         if let Some(market) = app.markets.get(market_idx) {
             let streaming_indicator = if app.streaming_connected && app.current_streaming_market.is_some() {
-                " [LIVE]"
+                if let Some(last_update) = app.last_streaming_update {
+                    let elapsed = last_update.elapsed();
+                    if elapsed.as_secs() < 2 {
+                        " [LIVE •]"  // Solid dot indicates recent update
+                    } else if elapsed.as_secs() < 10 {
+                        " [LIVE ◦]"  // Hollow dot indicates connected but no recent updates
+                    } else {
+                        " [LIVE ?]"  // Question mark indicates possibly stale
+                    }
+                } else {
+                    " [LIVE -]"  // Dash indicates waiting for first update
+                }
             } else {
-                ""
+                " [POLL]"
             };
             format!(" Order Book - {}{} ", market.name, streaming_indicator)
         } else {
@@ -1030,10 +1087,21 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     if let Some(orderbook) = &app.current_orderbook {
         let inner = block.inner(area);
         
+        // Add update timestamp if streaming
+        let mut update_info = String::new();
+        if app.streaming_connected {
+            if let Some(last_update) = app.last_streaming_update {
+                let elapsed = last_update.elapsed();
+                update_info = format!("Last update: {:.1}s ago | ", elapsed.as_secs_f32());
+            } else {
+                update_info = "Waiting for streaming data... | ".to_string();
+            }
+        }
+        
         // Split area into sections for each runner
         let num_runners = orderbook.runners.len().min(4); // Show max 4 runners
         if num_runners == 0 {
-            let text = Paragraph::new("No runners available")
+            let text = Paragraph::new(format!("{}No runners available", update_info))
                 .block(block)
                 .alignment(Alignment::Center);
             f.render_widget(text, area);
@@ -1072,11 +1140,54 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
                 let ask_price = runner.asks.get(i).map(|(p, _)| format!("{p:.2}")).unwrap_or_default();
                 let ask_size = runner.asks.get(i).map(|(_, s)| format!("{s:.0}")).unwrap_or_default();
                 
+                // Highlight best prices that have recently changed
+                let bid_style = if i == 0 && runner.is_streaming {
+                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = 
+                        (runner.last_update, runner.bids.get(0).map(|(p, _)| *p), runner.prev_best_bid) {
+                        if last_update.elapsed().as_millis() < 500 {
+                            if curr_price > prev_price {
+                                Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+                            } else if curr_price < prev_price {
+                                Style::default().fg(Color::Green).add_modifier(Modifier::DIM)
+                            } else {
+                                Style::default().fg(Color::Green)
+                            }
+                        } else {
+                            Style::default().fg(Color::Green)
+                        }
+                    } else {
+                        Style::default().fg(Color::Green)
+                    }
+                } else {
+                    Style::default().fg(Color::Green)
+                };
+                
+                let ask_style = if i == 0 && runner.is_streaming {
+                    if let (Some(last_update), Some(curr_price), Some(prev_price)) = 
+                        (runner.last_update, runner.asks.get(0).map(|(p, _)| *p), runner.prev_best_ask) {
+                        if last_update.elapsed().as_millis() < 500 {
+                            if curr_price < prev_price {
+                                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
+                            } else if curr_price > prev_price {
+                                Style::default().fg(Color::Red).add_modifier(Modifier::DIM)
+                            } else {
+                                Style::default().fg(Color::Red)
+                            }
+                        } else {
+                            Style::default().fg(Color::Red)
+                        }
+                    } else {
+                        Style::default().fg(Color::Red)
+                    }
+                } else {
+                    Style::default().fg(Color::Red)
+                };
+                
                 rows.push(Row::new(vec![
-                    Cell::from(bid_size).style(Style::default().fg(Color::Green)),
-                    Cell::from(bid_price).style(Style::default().fg(Color::Green)),
-                    Cell::from(ask_price).style(Style::default().fg(Color::Red)),
-                    Cell::from(ask_size).style(Style::default().fg(Color::Red)),
+                    Cell::from(bid_size).style(bid_style),
+                    Cell::from(bid_price).style(bid_style),
+                    Cell::from(ask_price).style(ask_style),
+                    Cell::from(ask_size).style(ask_style),
                 ]));
             }
             

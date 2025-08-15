@@ -4,6 +4,7 @@ use crate::orderbook::Orderbook;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -17,6 +18,7 @@ pub struct StreamingClient {
     command_sender: Option<mpsc::Sender<StreamingCommand>>,
     orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>,
     is_connected: Arc<RwLock<bool>>,
+    last_update_times: Arc<RwLock<HashMap<String, Instant>>>, // Track update times per market
 }
 
 #[derive(Debug)]
@@ -35,12 +37,18 @@ impl StreamingClient {
             command_sender: None,
             orderbooks: Arc::new(RwLock::new(HashMap::new())),
             is_connected: Arc::new(RwLock::new(false)),
+            last_update_times: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     /// Get a reference to the shared orderbooks
     pub fn get_orderbooks(&self) -> Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>> {
         self.orderbooks.clone()
+    }
+    
+    /// Get the last update time for a market
+    pub fn get_last_update_time(&self, market_id: &str) -> Option<Instant> {
+        self.last_update_times.read().ok()?.get(market_id).copied()
     }
 
     /// Initialize and start the streaming client in a background task
@@ -53,6 +61,7 @@ impl StreamingClient {
         let config = self.config.clone();
         let orderbooks = self.orderbooks.clone();
         let is_connected = self.is_connected.clone();
+        let last_update_times = self.last_update_times.clone();
 
         // Create a oneshot channel to signal when ready
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -73,9 +82,14 @@ impl StreamingClient {
 
             // Set up orderbook callback
             let orderbooks_ref = orderbooks.clone();
+            let update_times_ref = last_update_times.clone();
             if let Err(e) = client.set_orderbook_callback(move |market_id, runner_orderbooks| {
                 if let Ok(mut obs) = orderbooks_ref.write() {
-                    obs.insert(market_id, runner_orderbooks);
+                    obs.insert(market_id.clone(), runner_orderbooks);
+                }
+                // Track update time
+                if let Ok(mut times) = update_times_ref.write() {
+                    times.insert(market_id, Instant::now());
                 }
             }) {
                 error!("Failed to set orderbook callback: {}", e);
