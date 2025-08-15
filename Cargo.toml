@@ -7,6 +7,10 @@ license = "MIT"
 repository = "https://github.com/t2o2/betfair-rs"
 keywords = ["betfair", "betting", "trading"]
 
+[[bin]]
+name = "betfair"
+path = "src/bin/betfair.rs"
+
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.9", features = ["rustls-tls"] }
