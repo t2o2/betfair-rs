@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// A non-blocking wrapper around BetfairClient for streaming
 pub struct StreamingClient {
@@ -111,29 +111,42 @@ impl StreamingClient {
                 *connected = true;
             }
 
+            // Get the message sender for direct message sending
+            let message_sender = match client.get_message_sender() {
+                Ok(Some(sender)) => sender,
+                Ok(None) => {
+                    error!("Message sender not available from client");
+                    let _ = ready_tx.send(Err(anyhow::anyhow!("Message sender not available")));
+                    return;
+                }
+                Err(e) => {
+                    error!("Failed to get message sender: {}", e);
+                    let _ = ready_tx.send(Err(e));
+                    return;
+                }
+            };
+
             // Signal that we're ready
             let _ = ready_tx.send(Ok(()));
-
-            // Create Arc<Mutex> for the client to share between tasks
-            let client = Arc::new(tokio::sync::Mutex::new(client));
-            let client_for_commands = client.clone();
-            let client_for_listening = client.clone();
 
             // Spawn command handler task
             let cmd_handle = tokio::spawn(async move {
                 while let Some(cmd) = cmd_rx.recv().await {
                     match cmd {
                         StreamingCommand::Subscribe(market_id, levels) => {
-                            info!("Subscribing to market {} with {} levels", market_id, levels);
-                            let mut client = client_for_commands.lock().await;
-                            if let Err(e) =
-                                client.subscribe_to_markets(vec![market_id], levels).await
-                            {
-                                error!("Failed to subscribe to market: {}", e);
+                            info!("Processing subscription for market {} with {} levels", market_id, levels);
+                            // Send subscription message directly through the message channel
+                            let sub_msg = format!(
+                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
+                            );
+                            info!("Sending subscription: {}", sub_msg);
+                            if let Err(e) = message_sender.send(sub_msg).await {
+                                error!("Failed to send subscription: {}", e);
+                            } else {
+                                info!("Successfully sent subscription for market {}", market_id);
                             }
                         }
                         StreamingCommand::Unsubscribe(_market_id) => {
-                            // TODO: Implement unsubscribe functionality
                             info!("Unsubscribe not yet implemented");
                         }
                         StreamingCommand::Stop => {
@@ -144,23 +157,15 @@ impl StreamingClient {
                 }
             });
 
-            // Start listening in a separate task
-            let listen_handle = tokio::spawn(async move {
-                let mut client = client_for_listening.lock().await;
-                if let Err(e) = client.start_listening().await {
-                    error!("Streaming listener error: {}", e);
-                }
-            });
-
-            // Wait for either task to finish
-            tokio::select! {
-                _ = cmd_handle => {
-                    warn!("Command handler stopped");
-                }
-                _ = listen_handle => {
-                    warn!("Listener stopped");
-                }
+            // Start listening (this blocks)
+            let listen_result = client.start_listening().await;
+            
+            if let Err(e) = listen_result {
+                error!("Streaming listener error: {}", e);
             }
+            
+            // Stop the command handler if still running
+            cmd_handle.abort();
 
             // Mark as disconnected
             if let Ok(mut connected) = is_connected.write() {
@@ -177,13 +182,10 @@ impl StreamingClient {
                 Ok(())
             }
             Ok(Err(e)) => {
-                error!("Streaming client failed to start: {}", e);
+                error!("Failed to start streaming client: {}", e);
                 Err(e)
             }
-            Err(_) => {
-                error!("Streaming client task failed to start");
-                Err(anyhow::anyhow!("Failed to start streaming task"))
-            }
+            Err(_) => Err(anyhow::anyhow!("Failed to receive ready signal")),
         }
     }
 
@@ -218,15 +220,18 @@ impl StreamingClient {
         }
 
         if let Some(handle) = self.streaming_task.take() {
-            handle.abort();
+            handle.await?;
         }
 
         Ok(())
     }
 
-    /// Check if streaming is connected
+    /// Check if the streaming client is connected
     pub fn is_connected(&self) -> bool {
-        self.is_connected.read().map(|c| *c).unwrap_or(false)
+        self.is_connected
+            .read()
+            .map(|connected| *connected)
+            .unwrap_or(false)
     }
 }
 

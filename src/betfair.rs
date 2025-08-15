@@ -173,6 +173,14 @@ impl BetfairClient {
         streamer.start().await?;
         Ok(())
     }
+    
+    pub fn get_message_sender(&self) -> Result<Option<tokio::sync::mpsc::Sender<String>>> {
+        let streamer = self
+            .streamer
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Streamer not initialized. Please login first"))?;
+        Ok(streamer.get_message_sender())
+    }
 
     async fn make_api_request<T, U>(&self, url: &str, method: &str, params: T) -> Result<U>
     where
