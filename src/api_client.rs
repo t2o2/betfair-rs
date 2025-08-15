@@ -490,13 +490,20 @@ impl BetfairApiClient {
     ///   - `in_play_only`: Only in-play events
     /// 
     /// # Example
-    /// ```
+    /// ```no_run
+    /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let config = Config::new()?;
+    /// # let client = BetfairApiClient::new(config);
     /// // Get all events for Soccer
     /// let filter = MarketFilter {
     ///     event_type_ids: Some(vec!["1".to_string()]),
     ///     ..Default::default()
     /// };
     /// let events = client.list_events(Some(filter)).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn list_events(&self, filter: Option<MarketFilter>) -> Result<Vec<EventResult>> {
         self.rate_limiter.acquire_for_navigation().await?;
@@ -519,7 +526,12 @@ impl BetfairApiClient {
     ///   - `competition_ids`: Specific competition IDs
     /// 
     /// # Example
-    /// ```
+    /// ```no_run
+    /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let config = Config::new()?;
+    /// # let client = BetfairApiClient::new(config);
     /// // Get all competitions for Tennis in USA
     /// let filter = MarketFilter {
     ///     event_type_ids: Some(vec!["2".to_string()]),
@@ -527,6 +539,8 @@ impl BetfairApiClient {
     ///     ..Default::default()
     /// };
     /// let competitions = client.list_competitions(Some(filter)).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn list_competitions(&self, filter: Option<MarketFilter>) -> Result<Vec<CompetitionResult>> {
         self.rate_limiter.acquire_for_navigation().await?;

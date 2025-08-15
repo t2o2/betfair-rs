@@ -263,7 +263,7 @@ impl App {
                 info!("Streaming client connected successfully");
             }
             Err(e) => {
-                eprintln!("Warning: Failed to start streaming client: {}. Continuing without streaming.", e);
+                eprintln!("Warning: Failed to start streaming client: {e}. Continuing without streaming.");
                 self.streaming_connected = false;
             }
         }
@@ -421,11 +421,11 @@ impl App {
             if needs_subscription {
                 if let Some(client) = &self.streaming_client {
                     if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
-                        self.error_message = Some(format!("Failed to subscribe to market stream: {}", e));
+                        self.error_message = Some(format!("Failed to subscribe to market stream: {e}"));
                         self.streaming_connected = false;
                     } else {
                         self.current_streaming_market = Some(market_id.to_string());
-                        self.status_message = format!("Streaming market {}", market_id);
+                        self.status_message = format!("Streaming market {market_id}");
                         
                         // Give streaming a moment to populate initial data
                         tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -433,7 +433,7 @@ impl App {
                 }
             } else {
                 // Already subscribed to this market, just wait a bit for fresh data
-                self.status_message = format!("Refreshing market {}", market_id);
+                self.status_message = format!("Refreshing market {market_id}");
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             
@@ -458,7 +458,7 @@ impl App {
                     
                     let runner_name = runner_names.get(runner_id_str)
                         .cloned()
-                        .unwrap_or_else(|| format!("Runner {}", runner_id));
+                        .unwrap_or_else(|| format!("Runner {runner_id}"));
                     
                     runner_books.push(RunnerOrderBook {
                         runner_id,
@@ -704,7 +704,7 @@ impl App {
             };
             
             // Validate price and size ranges
-            if price < 1.01 || price > 1000.0 {
+            if !(1.01..=1000.0).contains(&price) {
                 self.error_message = Some("Price must be between 1.01 and 1000".to_string());
                 return Ok(());
             }
@@ -770,7 +770,7 @@ impl App {
                 } else {
                     response.status.clone()
                 };
-                self.error_message = Some(format!("Order failed: {}", error_detail));
+                self.error_message = Some(format!("Order failed: {error_detail}"));
             }
         } else {
             self.error_message = Some("Not connected to API".to_string());
@@ -915,20 +915,20 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
     let mut breadcrumb = String::from(" Market Browser");
     if let Some(sport_idx) = app.selected_sport {
         if let Some((_id, name, _count)) = app.sports.get(sport_idx) {
-            breadcrumb.push_str(&format!(" > {}", name));
+            breadcrumb.push_str(&format!(" > {name}"));
         }
     }
     if let Some(comp_idx) = app.selected_competition {
         if let Some((_id, name, _count)) = app.competitions.get(comp_idx) {
-            breadcrumb.push_str(&format!(" > {}", name));
+            breadcrumb.push_str(&format!(" > {name}"));
         }
     }
     if let Some(event_idx) = app.selected_event {
         if let Some((_id, name, _count)) = app.events.get(event_idx) {
-            breadcrumb.push_str(&format!(" > {}", name));
+            breadcrumb.push_str(&format!(" > {name}"));
         }
     }
-    breadcrumb.push_str(" ");
+    breadcrumb.push(' ');
     
     let block = Block::default()
         .title(breadcrumb)
@@ -1145,7 +1145,7 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
             let runner_name: String = order.runner_name.chars().take(15).collect();
             
             Row::new(vec![
-                Cell::from(format!("[{}]", key)).style(Style::default().fg(Color::Yellow)),
+                Cell::from(format!("[{key}]")).style(Style::default().fg(Color::Yellow)),
                 Cell::from(comp_name),
                 Cell::from(event_name),
                 Cell::from(order.market_type.clone()),
@@ -1619,7 +1619,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 0).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 0 { Some(0) } else { None };
+                        app.selected_order = if !app.active_orders.is_empty() { Some(0) } else { None };
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 0);
                     }
@@ -1708,7 +1708,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     }
                 }
                 // Letter keys a-z for items 10-35
-                KeyCode::Char(c) if ('a'..='z').contains(&c) && c != 'c' => {
+                KeyCode::Char(c) if c.is_ascii_lowercase() && c != 'c' => {
                     if app.active_panel == Panel::MarketBrowser {
                         let index = 9 + (c as usize - 'a' as usize);
                         handle_direct_selection(app, index).await?;
