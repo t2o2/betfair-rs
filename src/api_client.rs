@@ -588,3 +588,204 @@ impl BetfairApiClient {
         self.list_market_catalogue(request).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::BetfairConfig;
+    
+    fn create_test_config() -> Config {
+        Config {
+            betfair: BetfairConfig {
+                username: "test_user".to_string(),
+                password: "test_pass".to_string(),
+                api_key: "test_key".to_string(),
+                pfx_path: "/tmp/test.pfx".to_string(),
+                pfx_password: "test_pfx_pass".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_api_client_creation() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+        
+        assert!(client.session_token.is_none());
+        assert!(client.get_session_token().is_none());
+    }
+
+    #[test]
+    fn test_set_and_get_session_token() {
+        let config = create_test_config();
+        let mut client = BetfairApiClient::new(config);
+        
+        let token = "test_session_token".to_string();
+        client.set_session_token(token.clone());
+        
+        assert_eq!(client.get_session_token(), Some(token));
+    }
+
+    #[test]
+    fn test_client_has_session_token_field() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+        
+        assert!(client.session_token.is_none());
+    }
+
+    #[test]
+    fn test_client_has_api_key_in_config() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+        
+        assert_eq!(client.config.betfair.api_key, "test_key");
+    }
+
+    #[test]
+    fn test_market_filter_builder() {
+        let filter = MarketFilter {
+            event_type_ids: Some(vec!["1".to_string()]),
+            competition_ids: Some(vec!["10".to_string()]),
+            market_ids: Some(vec!["1.123456".to_string()]),
+            in_play_only: Some(true),
+            market_betting_types: Some(vec!["ODDS".to_string()]),
+            market_countries: Some(vec!["GB".to_string()]),
+            market_type_codes: Some(vec!["MATCH_ODDS".to_string()]),
+            ..Default::default()
+        };
+        
+        assert_eq!(filter.event_type_ids.unwrap()[0], "1");
+        assert_eq!(filter.competition_ids.unwrap()[0], "10");
+        assert_eq!(filter.market_ids.unwrap()[0], "1.123456");
+        assert_eq!(filter.in_play_only.unwrap(), true);
+    }
+
+    #[test]
+    fn test_place_orders_request_builder() {
+        let request = PlaceOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![PlaceInstruction {
+                order_type: OrderType::Limit,
+                selection_id: 12345,
+                handicap: Some(0.0),
+                side: Side::Back,
+                limit_order: Some(LimitOrder {
+                    size: 10.0,
+                    price: 2.0,
+                    persistence_type: PersistenceType::Lapse,
+                    time_in_force: None,
+                    min_fill_size: None,
+                    bet_target_type: None,
+                    bet_target_size: None,
+                }),
+                limit_on_close_order: None,
+                market_on_close_order: None,
+                customer_order_ref: Some("test_ref".to_string()),
+            }],
+            customer_ref: None,
+            market_version: None,
+            customer_strategy_ref: None,
+            async_: None,
+        };
+        
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions[0].selection_id, 12345);
+        assert_eq!(request.instructions[0].side, Side::Back);
+        assert_eq!(request.instructions[0].limit_order.as_ref().unwrap().size, 10.0);
+        assert_eq!(request.instructions[0].limit_order.as_ref().unwrap().price, 2.0);
+    }
+
+    #[test]
+    fn test_cancel_orders_request_builder() {
+        let request = CancelOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![CancelInstruction {
+                bet_id: "12345".to_string(),
+                size_reduction: Some(5.0),
+            }],
+            customer_ref: None,
+        };
+        
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions[0].bet_id, "12345");
+        assert_eq!(request.instructions[0].size_reduction.unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_list_market_catalogue_request() {
+        let request = ListMarketCatalogueRequest {
+            filter: MarketFilter {
+                event_type_ids: Some(vec!["1".to_string()]),
+                ..Default::default()
+            },
+            market_projection: Some(vec![
+                MarketProjection::Competition,
+                MarketProjection::Event,
+            ]),
+            sort: Some(MarketSort::FirstToStart),
+            max_results: Some(10i32),
+            locale: Some("en".to_string()),
+        };
+        
+        assert!(request.filter.event_type_ids.is_some());
+        assert_eq!(request.max_results, Some(10));
+        assert_eq!(request.locale, Some("en".to_string()));
+    }
+
+    #[test]
+    fn test_list_market_book_request() {
+        let request = ListMarketBookRequest {
+            market_ids: vec!["1.123456".to_string()],
+            price_projection: Some(PriceProjectionDto {
+                price_data: Some(vec![PriceData::ExBestOffers]),
+                ex_best_offers_overrides: None,
+                virtualise: Some(false),
+                rollover_stakes: Some(false),
+            }),
+            order_projection: None,
+            match_projection: None,
+            include_overall_position: Some(false),
+            partition_matched_by_strategy_ref: Some(false),
+            customer_strategy_refs: None,
+            currency_code: Some("GBP".to_string()),
+            locale: Some("en".to_string()),
+            matched_since: None,
+            bet_ids: None,
+        };
+        
+        assert_eq!(request.market_ids[0], "1.123456");
+        assert!(request.price_projection.is_some());
+        assert_eq!(request.currency_code, Some("GBP".to_string()));
+    }
+
+    #[test]
+    fn test_list_current_orders_request() {
+        let request = ListCurrentOrdersRequest {
+            bet_ids: Some(vec!["123".to_string(), "456".to_string()]),
+            market_ids: Some(vec!["1.123456".to_string()]),
+            order_projection: Some("ALL".to_string()),
+            customer_order_refs: None,
+            customer_strategy_refs: None,
+            date_range: None,
+            order_by: Some("BY_BET".to_string()),
+            sort_dir: Some("EARLIEST_TO_LATEST".to_string()),
+            from_record: Some(0),
+            record_count: Some(100),
+        };
+        
+        assert_eq!(request.bet_ids.unwrap().len(), 2);
+        assert_eq!(request.order_by, Some("BY_BET".to_string()));
+        assert_eq!(request.record_count, Some(100));
+    }
+
+    #[test]
+    fn test_get_account_funds_request() {
+        let request = GetAccountFundsRequest {
+            wallet: Some(Wallet::Uk),
+        };
+        
+        assert!(request.wallet.is_some());
+    }
+
+}

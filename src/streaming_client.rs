@@ -158,6 +158,15 @@ impl StreamingClient {
                                 "Processing subscription for market {} with {} levels",
                                 market_id, levels
                             );
+                            // Clear previous market data when subscribing to a new market
+                            // Betfair will automatically replace the previous subscription
+                            if let Ok(mut obs) = orderbooks.write() {
+                                obs.clear();
+                            }
+                            if let Ok(mut times) = last_update_times.write() {
+                                times.clear();
+                            }
+                            
                             // Send subscription message directly through the message channel
                             let sub_msg = format!(
                                 "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
@@ -169,8 +178,16 @@ impl StreamingClient {
                                 info!("Successfully sent subscription for market {}", market_id);
                             }
                         }
-                        StreamingCommand::Unsubscribe(_market_id) => {
-                            info!("Unsubscribe not yet implemented");
+                        StreamingCommand::Unsubscribe(market_id) => {
+                            info!("Unsubscription for market {} - skipping (Betfair handles replacement automatically)", market_id);
+                            // Don't send unsubscribe - Betfair automatically replaces subscriptions
+                            // Just clear the local data for this market
+                            if let Ok(mut obs) = orderbooks.write() {
+                                obs.remove(&market_id);
+                            }
+                            if let Ok(mut times) = last_update_times.write() {
+                                times.remove(&market_id);
+                            }
                         }
                         StreamingCommand::Stop => {
                             info!("Stopping streaming client");
@@ -263,5 +280,175 @@ impl Drop for StreamingClient {
         if let Some(handle) = self.streaming_task.take() {
             handle.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::BetfairConfig;
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    fn create_test_config() -> Config {
+        Config {
+            betfair: BetfairConfig {
+                username: "test_user".to_string(),
+                password: "test_pass".to_string(),
+                api_key: "test_api_key".to_string(),
+                pfx_path: "/tmp/test.pfx".to_string(),
+                pfx_password: "test_pfx_pass".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_new_streaming_client() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        assert_eq!(client.api_key, "test_api_key");
+        assert!(client.session_token.is_none());
+        assert!(client.streaming_task.is_none());
+        assert!(client.command_sender.is_none());
+        assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn test_with_session_token() {
+        let client = StreamingClient::with_session_token(
+            "test_api_key".to_string(),
+            "test_token".to_string(),
+        );
+        assert_eq!(client.api_key, "test_api_key");
+        assert_eq!(client.session_token, Some("test_token".to_string()));
+        assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn test_from_config() {
+        let config = create_test_config();
+        let client = StreamingClient::from_config(config);
+        assert_eq!(client.api_key, "test_api_key");
+        assert!(client.session_token.is_none());
+        assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn test_set_session_token() {
+        let mut client = StreamingClient::new("test_api_key".to_string());
+        assert!(client.session_token.is_none());
+        
+        client.set_session_token("new_token".to_string());
+        assert_eq!(client.session_token, Some("new_token".to_string()));
+    }
+
+    #[test]
+    fn test_get_orderbooks_empty() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let orderbooks = client.get_orderbooks();
+        let books = orderbooks.read().unwrap();
+        assert!(books.is_empty());
+    }
+
+    #[test]
+    fn test_get_orderbooks_returns_same_reference() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let ob1 = client.get_orderbooks();
+        let ob2 = client.get_orderbooks();
+        assert!(Arc::ptr_eq(&ob1, &ob2));
+    }
+
+    #[test]
+    fn test_get_last_update_time_none() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let time = client.get_last_update_time("1.123456");
+        assert!(time.is_none());
+    }
+
+    #[test]
+    fn test_get_last_update_time_with_data() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let now = Instant::now();
+        {
+            let mut times = client.last_update_times.write().unwrap();
+            times.insert("1.123456".to_string(), now);
+        }
+        let time = client.get_last_update_time("1.123456");
+        assert!(time.is_some());
+        assert_eq!(time.unwrap(), now);
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_without_start() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let result = client.subscribe_to_market("1.123456".to_string(), 5).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Streaming client not started"));
+    }
+
+    #[tokio::test]
+    async fn test_unsubscribe_without_start() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        let result = client.unsubscribe_from_market("1.123456".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Streaming client not started"));
+    }
+
+    #[tokio::test]
+    async fn test_stop_without_start() {
+        let mut client = StreamingClient::new("test_api_key".to_string());
+        let result = client.stop().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_drop_client() {
+        let mut client = StreamingClient::new("test_api_key".to_string());
+        client.streaming_task = Some(tokio::spawn(async {
+            loop {
+                sleep(Duration::from_secs(1)).await;
+            }
+        }));
+        drop(client);
+    }
+
+    #[test]
+    fn test_is_connected_false() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn test_is_connected_true() {
+        let client = StreamingClient::new("test_api_key".to_string());
+        {
+            let mut connected = client.is_connected.write().unwrap();
+            *connected = true;
+        }
+        assert!(client.is_connected());
+    }
+
+    #[test]
+    fn test_concurrent_orderbook_access() {
+        use std::thread;
+        
+        let client = Arc::new(StreamingClient::new("test_api_key".to_string()));
+        let orderbooks = client.get_orderbooks();
+        
+        let mut handles = vec![];
+        for i in 0..10 {
+            let ob_clone = Arc::clone(&orderbooks);
+            let handle = thread::spawn(move || {
+                let mut books = ob_clone.write().unwrap();
+                books.insert(format!("market_{}", i), HashMap::new());
+            });
+            handles.push(handle);
+        }
+        
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        
+        let books = orderbooks.read().unwrap();
+        assert_eq!(books.len(), 10);
     }
 }

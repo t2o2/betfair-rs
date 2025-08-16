@@ -447,8 +447,8 @@ impl App {
                         self.current_streaming_market = Some(market_id.to_string());
                         self.status_message = format!("Streaming market {market_id}");
 
-                        // Give streaming a moment to populate initial data
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                        // Give streaming more time to populate initial data
+                        tokio::time::sleep(Duration::from_millis(2000)).await;
                     }
                 }
             } else {
@@ -457,9 +457,12 @@ impl App {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
 
-            // Read from streaming orderbooks
-            let orderbooks = self.streaming_orderbooks.read().unwrap();
-            if let Some(market_orderbooks) = orderbooks.get(market_id) {
+            // Read from streaming orderbooks - retry a few times if no data yet
+            let mut retries = 0;
+            while retries < 3 {
+                let orderbooks = self.streaming_orderbooks.read().unwrap();
+                if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                    if !market_orderbooks.is_empty() {
                 let mut runner_books = vec![];
 
                 for (runner_id_str, orderbook) in market_orderbooks {
@@ -513,8 +516,19 @@ impl App {
                     self.selected_runner = Some(0);
                 }
 
-                return Ok(());
+                        return Ok(());
+                    }
+                }
+                drop(orderbooks); // Release lock before sleeping
+                
+                if retries < 2 {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                retries += 1;
             }
+            
+            // If we still don't have streaming data after retries, fall back to polling
+            self.status_message = format!("No streaming data for market {market_id}, using polling");
         }
 
         // Fall back to polling if streaming not available or failed

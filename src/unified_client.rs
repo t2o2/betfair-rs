@@ -224,19 +224,212 @@ impl UnifiedBetfairClient {
         // Place the order
         let response = self.api_client.place_orders(request.clone()).await?;
 
-        // If successful and we have a market ID, subscribe to updates
+        // If successful, subscribe to market updates
         if response.status == "SUCCESS" {
-            if let Some(instruction) = request.instructions.first() {
-                if let Err(e) = self
-                    .subscribe_to_market(instruction.selection_id.to_string(), levels)
-                    .await
-                {
-                    // Log but don't fail the order placement
-                    tracing::warn!("Failed to subscribe to market updates: {}", e);
-                }
+            if let Err(e) = self
+                .subscribe_to_market(request.market_id.clone(), levels)
+                .await
+            {
+                // Log but don't fail the order placement
+                tracing::warn!("Failed to subscribe to market updates: {}", e);
             }
         }
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::BetfairConfig;
+    use crate::dto::{LimitOrder, OrderType, PersistenceType, PlaceInstruction, Side};
+
+    fn create_test_config() -> Config {
+        Config {
+            betfair: BetfairConfig {
+                username: "test_user".to_string(),
+                password: "test_pass".to_string(),
+                api_key: "test_api_key".to_string(),
+                pfx_path: "/tmp/test.pfx".to_string(),
+                pfx_password: "test_pfx_pass".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_unified_client_creation() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        assert!(client.get_session_token().is_none());
+        assert!(!client.is_streaming_connected());
+    }
+
+    #[test]
+    fn test_get_and_set_session_token() {
+        let config = create_test_config();
+        let mut client = UnifiedBetfairClient::new(config);
+        
+        assert!(client.get_session_token().is_none());
+        
+        client.set_session_token("test_token".to_string());
+        assert_eq!(client.get_session_token(), Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_get_streaming_orderbooks() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        let ob1 = client.get_streaming_orderbooks();
+        let ob2 = client.get_streaming_orderbooks();
+        
+        assert!(ob1.is_none());
+        assert!(ob2.is_none());
+    }
+
+    #[test]
+    fn test_get_streaming_orderbooks_empty() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        let orderbooks = client.get_streaming_orderbooks();
+        assert!(orderbooks.is_none());
+    }
+
+    #[test]
+    fn test_market_last_update_time_not_available() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        let time = client.get_market_last_update_time("1.123456");
+        assert!(time.is_none());
+    }
+
+    #[test]
+    fn test_streaming_not_connected_initially() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        assert!(!client.is_streaming_connected());
+    }
+
+    #[test]
+    fn test_market_filter_methods() {
+        let filter = MarketFilter {
+            event_type_ids: Some(vec!["1".to_string()]),
+            competition_ids: Some(vec!["10".to_string()]),
+            market_ids: Some(vec!["1.123456".to_string()]),
+            in_play_only: Some(true),
+            market_betting_types: Some(vec!["ODDS".to_string()]),
+            ..Default::default()
+        };
+        
+        assert!(filter.event_type_ids.is_some());
+        assert!(filter.competition_ids.is_some());
+        assert!(filter.market_ids.is_some());
+        assert_eq!(filter.in_play_only, Some(true));
+        assert_eq!(filter.market_betting_types.unwrap()[0], "ODDS");
+    }
+
+    #[test]
+    fn test_place_order_request_creation() {
+        let request = PlaceOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![PlaceInstruction {
+                order_type: OrderType::Limit,
+                selection_id: 12345,
+                handicap: Some(0.0),
+                side: Side::Back,
+                limit_order: Some(LimitOrder {
+                    size: 10.0,
+                    price: 2.0,
+                    persistence_type: PersistenceType::Lapse,
+                    time_in_force: None,
+                    min_fill_size: None,
+                    bet_target_type: None,
+                    bet_target_size: None,
+                }),
+                limit_on_close_order: None,
+                market_on_close_order: None,
+                customer_order_ref: Some("test_ref".to_string()),
+            }],
+            customer_ref: None,
+            market_version: None,
+            customer_strategy_ref: None,
+            async_: None,
+        };
+        
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions.len(), 1);
+        assert_eq!(request.instructions[0].selection_id, 12345);
+        assert_eq!(request.instructions[0].side, Side::Back);
+    }
+
+    #[test]
+    fn test_place_order_with_updates_request() {
+        let request = PlaceOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![
+                PlaceInstruction {
+                    order_type: OrderType::Limit,
+                    selection_id: 12345,
+                    handicap: Some(0.0),
+                    side: Side::Back,
+                    limit_order: Some(LimitOrder {
+                        size: 10.0,
+                        price: 2.0,
+                        persistence_type: PersistenceType::Lapse,
+                        time_in_force: None,
+                        min_fill_size: None,
+                        bet_target_type: None,
+                        bet_target_size: None,
+                    }),
+                    limit_on_close_order: None,
+                    market_on_close_order: None,
+                    customer_order_ref: Some("order1".to_string()),
+                },
+                PlaceInstruction {
+                    order_type: OrderType::Limit,
+                    selection_id: 54321,
+                    handicap: Some(0.0),
+                    side: Side::Lay,
+                    limit_order: Some(LimitOrder {
+                        size: 20.0,
+                        price: 3.0,
+                        persistence_type: PersistenceType::Persist,
+                        time_in_force: None,
+                        min_fill_size: None,
+                        bet_target_type: None,
+                        bet_target_size: None,
+                    }),
+                    limit_on_close_order: None,
+                    market_on_close_order: None,
+                    customer_order_ref: Some("order2".to_string()),
+                },
+            ],
+            customer_ref: Some("batch_ref".to_string()),
+            market_version: None,
+            customer_strategy_ref: None,
+            async_: None,
+        };
+        
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions.len(), 2);
+        assert_eq!(request.instructions[0].selection_id, 12345);
+        assert_eq!(request.instructions[0].side, Side::Back);
+        assert_eq!(request.instructions[1].selection_id, 54321);
+        assert_eq!(request.instructions[1].side, Side::Lay);
+        assert_eq!(request.customer_ref, Some("batch_ref".to_string()));
+    }
+
+    #[test]
+    fn test_unified_client_streaming_orderbooks_initialization() {
+        let config = create_test_config();
+        let client = UnifiedBetfairClient::new(config);
+        
+        let orderbooks = client.get_streaming_orderbooks();
+        assert!(orderbooks.is_none());
     }
 }
