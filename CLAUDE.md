@@ -55,19 +55,26 @@ The library includes an interactive terminal dashboard for real-time trading:
 
 ### Core Components
 
-**Two Client Architectures:**
-1. **BetfairApiClient** (`src/api_client.rs`) - Modern unified REST API client
+**Unified Client Architecture:**
+1. **UnifiedBetfairClient** (`src/unified_client.rs`) - Main client combining REST and streaming
+   - Combines BetfairApiClient for REST operations
+   - Integrates StreamingClient for real-time market data
+   - Single login for both REST and streaming
+   - Shared session token management
+
+2. **BetfairApiClient** (`src/api_client.rs`) - REST API client
    - Uses JSON-RPC for all API calls
    - Built-in rate limiting per endpoint type (navigation/data/transaction)
    - Retry policy with exponential backoff
    - Session token management
    - Optional MarketFilter parameters for flexible querying
 
-2. **BetfairClient** (`src/betfair.rs`) - Legacy client with streaming support
+3. **StreamingClient** (`src/streaming_client.rs`) - Real-time streaming client
    - WebSocket streaming for real-time market data
-   - Order placement and management
-   - Orderbook maintenance with callbacks
-   - Heartbeat monitoring and auto-reconnection
+   - Non-blocking architecture
+   - Can accept external session token
+   - Orderbook maintenance with shared state
+   - Automatic reconnection handling
 
 ### Key Architectural Patterns
 
@@ -90,9 +97,11 @@ The library includes an interactive terminal dashboard for real-time trading:
 
 **Streaming Architecture:**
 - Persistent WebSocket connection to `stream-api.betfair.com`
+- Non-blocking architecture with background task
 - Orderbook state management with configurable depth
-- Callback-based event handling for market changes and order updates
+- Shared orderbook state accessible via Arc<RwLock>
 - Automatic reconnection on connection loss
+- Direct subscription management via command channels
 
 ## Configuration Setup
 

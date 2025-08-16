@@ -1,6 +1,6 @@
-use crate::betfair::BetfairClient;
 use crate::config::Config;
 use crate::orderbook::Orderbook;
+use crate::streamer::BetfairStreamer;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -9,10 +9,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-/// A non-blocking wrapper around BetfairClient for streaming
+/// A non-blocking streaming client for Betfair market data
 pub struct StreamingClient {
-    config: Config,
-    #[allow(dead_code)]
+    api_key: String,
     session_token: Option<String>,
     streaming_task: Option<JoinHandle<()>>,
     command_sender: Option<mpsc::Sender<StreamingCommand>>,
@@ -29,9 +28,10 @@ enum StreamingCommand {
 }
 
 impl StreamingClient {
-    pub fn new(config: Config) -> Self {
+    /// Create a new streaming client with API key
+    pub fn new(api_key: String) -> Self {
         Self {
-            config,
+            api_key,
             session_token: None,
             streaming_task: None,
             command_sender: None,
@@ -39,6 +39,29 @@ impl StreamingClient {
             is_connected: Arc::new(RwLock::new(false)),
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Create a new streaming client with API key and existing session token
+    pub fn with_session_token(api_key: String, session_token: String) -> Self {
+        Self {
+            api_key,
+            session_token: Some(session_token),
+            streaming_task: None,
+            command_sender: None,
+            orderbooks: Arc::new(RwLock::new(HashMap::new())),
+            is_connected: Arc::new(RwLock::new(false)),
+            last_update_times: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Create from Config for backward compatibility
+    pub fn from_config(config: Config) -> Self {
+        Self::new(config.betfair.api_key.clone())
+    }
+
+    /// Set or update the session token
+    pub fn set_session_token(&mut self, token: String) {
+        self.session_token = Some(token);
     }
 
     /// Get a reference to the shared orderbooks
@@ -53,12 +76,21 @@ impl StreamingClient {
 
     /// Initialize and start the streaming client in a background task
     pub async fn start(&mut self) -> Result<()> {
+        // Ensure we have a session token
+        let session_token = self
+            .session_token
+            .as_ref()
+            .ok_or_else(|| {
+                anyhow::anyhow!("Session token not set. Call set_session_token() first.")
+            })?
+            .clone();
+
         // Create command channel
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<StreamingCommand>(100);
         self.command_sender = Some(cmd_tx.clone());
 
         // Clone necessary data for the task
-        let config = self.config.clone();
+        let api_key = self.api_key.clone();
         let orderbooks = self.orderbooks.clone();
         let is_connected = self.is_connected.clone();
         let last_update_times = self.last_update_times.clone();
@@ -68,22 +100,15 @@ impl StreamingClient {
 
         // Spawn the streaming task
         let handle = tokio::spawn(async move {
-            // Create and initialize the client
-            let mut client = BetfairClient::new(config);
+            // Create the streamer
+            let mut streamer = BetfairStreamer::new(api_key, session_token);
 
-            // Login
-            if let Err(e) = client.login().await {
-                error!("Failed to login to streaming: {}", e);
-                let _ = ready_tx.send(Err(anyhow::anyhow!("Login failed: {}", e)));
-                return;
-            }
-
-            info!("Streaming client logged in successfully");
+            info!("Streaming client initialized");
 
             // Set up orderbook callback
             let orderbooks_ref = orderbooks.clone();
             let update_times_ref = last_update_times.clone();
-            if let Err(e) = client.set_orderbook_callback(move |market_id, runner_orderbooks| {
+            streamer.set_orderbook_callback(move |market_id, runner_orderbooks| {
                 if let Ok(mut obs) = orderbooks_ref.write() {
                     obs.insert(market_id.clone(), runner_orderbooks);
                 }
@@ -91,14 +116,10 @@ impl StreamingClient {
                 if let Ok(mut times) = update_times_ref.write() {
                     times.insert(market_id, Instant::now());
                 }
-            }) {
-                error!("Failed to set orderbook callback: {}", e);
-                let _ = ready_tx.send(Err(anyhow::anyhow!("Callback setup failed: {}", e)));
-                return;
-            }
+            });
 
             // Connect to streaming service
-            if let Err(e) = client.connect().await {
+            if let Err(e) = streamer.connect_betfair_tls_stream().await {
                 error!("Failed to connect to streaming: {}", e);
                 let _ = ready_tx.send(Err(anyhow::anyhow!("Connection failed: {}", e)));
                 return;
@@ -112,13 +133,12 @@ impl StreamingClient {
             }
 
             // Get the message sender for direct message sending
-            let message_sender = match client.get_message_sender() {
-                Ok(Some(sender)) => sender,
-                Ok(None) => {
-                    error!("Message sender not available from client");
-                    let _ = ready_tx.send(Err(anyhow::anyhow!("Message sender not available")));
-                    return;
-                }
+            let message_sender = streamer
+                .get_message_sender()
+                .ok_or_else(|| anyhow::anyhow!("Message sender not available"));
+
+            let message_sender = match message_sender {
+                Ok(sender) => sender,
                 Err(e) => {
                     error!("Failed to get message sender: {}", e);
                     let _ = ready_tx.send(Err(e));
@@ -134,7 +154,10 @@ impl StreamingClient {
                 while let Some(cmd) = cmd_rx.recv().await {
                     match cmd {
                         StreamingCommand::Subscribe(market_id, levels) => {
-                            info!("Processing subscription for market {} with {} levels", market_id, levels);
+                            info!(
+                                "Processing subscription for market {} with {} levels",
+                                market_id, levels
+                            );
                             // Send subscription message directly through the message channel
                             let sub_msg = format!(
                                 "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
@@ -158,12 +181,12 @@ impl StreamingClient {
             });
 
             // Start listening (this blocks)
-            let listen_result = client.start_listening().await;
-            
+            let listen_result = streamer.start().await;
+
             if let Err(e) = listen_result {
                 error!("Streaming listener error: {}", e);
             }
-            
+
             // Stop the command handler if still running
             cmd_handle.abort();
 

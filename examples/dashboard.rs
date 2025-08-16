@@ -1,6 +1,5 @@
 use anyhow::Result;
 use betfair_rs::{
-    api_client::BetfairApiClient,
     config::Config,
     dto::{
         account::GetAccountFundsRequest,
@@ -12,7 +11,7 @@ use betfair_rs::{
         ListMarketCatalogueRequest, MarketFilter,
     },
     orderbook::Orderbook,
-    streaming_client::StreamingClient,
+    UnifiedBetfairClient,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -184,9 +183,8 @@ struct App {
     status_message: String,
     error_message: Option<String>,
 
-    // Clients
-    api_client: Option<BetfairApiClient>,
-    streaming_client: Option<StreamingClient>,
+    // Unified client
+    client: Option<UnifiedBetfairClient>,
 }
 
 impl App {
@@ -236,8 +234,7 @@ impl App {
             status_message: "Initializing...".to_string(),
             error_message: None,
 
-            api_client: None,
-            streaming_client: None,
+            client: None,
         }
     }
 
@@ -245,11 +242,11 @@ impl App {
         // Load configuration and create clients
         let config = Config::new()?;
 
-        // Initialize API client
-        let mut api_client = BetfairApiClient::new(config.clone());
+        // Initialize unified client
+        let mut client = UnifiedBetfairClient::new(config);
         self.status_message = "Logging in to Betfair API...".to_string();
 
-        let login_response = api_client.login().await?;
+        let login_response = client.login().await?;
         if login_response.login_status != "SUCCESS" {
             return Err(anyhow::anyhow!(
                 "Login failed: {}",
@@ -258,20 +255,21 @@ impl App {
         }
 
         self.api_connected = true;
-        self.api_client = Some(api_client);
-
-        // Initialize streaming client with non-blocking architecture
-        self.status_message = "Initializing streaming client...".to_string();
-        let mut streaming_client = StreamingClient::new(config.clone());
+        self.status_message = "Initializing streaming...".to_string();
 
         // Try to start the streaming client
-        match streaming_client.start().await {
+        match client.start_streaming().await {
             Ok(()) => {
                 // Get the shared orderbooks reference
-                self.streaming_orderbooks = streaming_client.get_orderbooks();
-                self.streaming_connected = true;
-                self.status_message = "Streaming connected".to_string();
-                info!("Streaming client connected successfully");
+                if let Some(orderbooks) = client.get_streaming_orderbooks() {
+                    self.streaming_orderbooks = orderbooks;
+                    self.streaming_connected = true;
+                    self.status_message = "Connected to API and streaming".to_string();
+                    info!("Streaming client connected successfully");
+                } else {
+                    self.streaming_connected = false;
+                    self.status_message = "API connected (no streaming)".to_string();
+                }
             }
             Err(e) => {
                 eprintln!(
@@ -281,7 +279,7 @@ impl App {
             }
         }
 
-        self.streaming_client = Some(streaming_client);
+        self.client = Some(client);
 
         // Load initial data
         self.load_sports().await?;
@@ -297,7 +295,7 @@ impl App {
     }
 
     async fn load_sports(&mut self) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let sports = client.list_sports(None).await?;
             self.sports = sports
                 .into_iter()
@@ -310,7 +308,7 @@ impl App {
     }
 
     async fn load_competitions(&mut self, sport_id: &str) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let filter = MarketFilter {
                 event_type_ids: Some(vec![sport_id.to_string()]),
                 ..Default::default()
@@ -326,7 +324,7 @@ impl App {
     }
 
     async fn load_events(&mut self, sport_id: &str, competition_id: Option<&str>) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let mut filter = MarketFilter {
                 event_type_ids: Some(vec![sport_id.to_string()]),
                 ..Default::default()
@@ -344,7 +342,7 @@ impl App {
     }
 
     async fn load_markets(&mut self, sport_id: &str, event_id: Option<&str>) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let mut filter = MarketFilter {
                 event_type_ids: Some(vec![sport_id.to_string()]),
                 ..Default::default()
@@ -399,7 +397,7 @@ impl App {
 
         // First, get runner names from the market catalog
         let mut runner_names = HashMap::new();
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let filter = MarketFilter {
                 market_ids: Some(vec![market_id.to_string()]),
                 ..Default::default()
@@ -440,7 +438,7 @@ impl App {
 
             // Subscribe to the market if needed
             if needs_subscription {
-                if let Some(client) = &self.streaming_client {
+                if let Some(client) = &self.client {
                     if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
                         self.error_message =
                             Some(format!("Failed to subscribe to market stream: {e}"));
@@ -520,7 +518,7 @@ impl App {
         }
 
         // Fall back to polling if streaming not available or failed
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let market_books = client.get_odds(market_id.to_string()).await?;
 
             if let Some(market_book) = market_books.first() {
@@ -598,7 +596,7 @@ impl App {
     }
 
     async fn load_account_info(&mut self) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let funds = client
                 .get_account_funds(GetAccountFundsRequest { wallet: None })
                 .await?;
@@ -611,8 +609,8 @@ impl App {
     async fn load_active_orders(&mut self) -> Result<()> {
         // Reset scroll when loading new orders
         self.reset_active_orders_scroll();
-        
-        if let Some(client) = &mut self.api_client {
+
+        if let Some(client) = &mut self.client {
             let request = ListCurrentOrdersRequest {
                 bet_ids: None,
                 market_ids: None,
@@ -733,7 +731,7 @@ impl App {
             return Ok(());
         }
 
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             let price: f64 = match self.order_price.parse() {
                 Ok(p) => p,
                 Err(_) => {
@@ -843,7 +841,7 @@ impl App {
     }
 
     async fn cancel_order(&mut self, bet_id: &str) -> Result<()> {
-        if let Some(client) = &mut self.api_client {
+        if let Some(client) = &mut self.client {
             if let Some(order) = self.active_orders.iter().find(|o| o.bet_id == bet_id) {
                 let instruction = CancelInstruction {
                     bet_id: bet_id.to_string(),
@@ -887,7 +885,7 @@ impl App {
             Panel::OrderEntry => Panel::ActiveOrders,
         };
     }
-    
+
     fn update_market_browser_scroll(&mut self, viewport_height: usize) {
         // Update scroll offset based on selected item
         let selected_index = if !self.markets.is_empty() {
@@ -899,7 +897,7 @@ impl App {
         } else {
             self.selected_sport
         };
-        
+
         if let Some(selected) = selected_index {
             if selected < self.market_browser_scroll_offset {
                 // Selected item is above viewport
@@ -910,7 +908,7 @@ impl App {
             }
         }
     }
-    
+
     fn update_active_orders_scroll(&mut self, viewport_height: usize) {
         // Update scroll offset based on selected order
         if let Some(selected) = self.selected_order {
@@ -923,11 +921,11 @@ impl App {
             }
         }
     }
-    
+
     fn reset_market_browser_scroll(&mut self) {
         self.market_browser_scroll_offset = 0;
     }
-    
+
     fn reset_active_orders_scroll(&mut self) {
         self.active_orders_scroll_offset = 0;
     }
@@ -937,9 +935,8 @@ impl App {
         if self.streaming_connected {
             if let Some(market_id) = &self.current_streaming_market {
                 // Check for market-level update time
-                if let Some(streaming_client) = &self.streaming_client {
-                    if let Some(market_update_time) =
-                        streaming_client.get_last_update_time(market_id)
+                if let Some(client) = &self.client {
+                    if let Some(market_update_time) = client.get_market_last_update_time(market_id)
                     {
                         self.last_streaming_update = Some(market_update_time);
                     }
@@ -1088,7 +1085,7 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
         .border_style(Style::default().fg(border_color));
 
     let inner = block.inner(area);
-    
+
     // Calculate visible area
     let visible_height = inner.height as usize;
 
@@ -1175,7 +1172,7 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
             })
             .collect()
     };
-    
+
     // Apply scrolling - only show items within the viewport
     let visible_items: Vec<ListItem> = all_items
         .into_iter()
@@ -1427,7 +1424,7 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
 
     if !app.active_orders.is_empty() {
         let inner = block.inner(area);
-        
+
         // Calculate visible area (accounting for header)
         let visible_height = inner.height.saturating_sub(1) as usize; // Subtract 1 for header
 
@@ -1462,7 +1459,7 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
                 ])
             })
             .collect();
-        
+
         // Apply scrolling - only show rows within the viewport
         let visible_rows: Vec<Row> = all_rows
             .into_iter()
@@ -1474,8 +1471,9 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
         // Adjust selection index for viewport
         let mut table_state = TableState::default();
         if let Some(selected) = app.selected_order {
-            if selected >= app.active_orders_scroll_offset 
-                && selected < app.active_orders_scroll_offset + visible_height {
+            if selected >= app.active_orders_scroll_offset
+                && selected < app.active_orders_scroll_offset + visible_height
+            {
                 table_state.select(Some(selected - app.active_orders_scroll_offset));
             }
         }

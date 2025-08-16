@@ -37,6 +37,8 @@ cargo run -- dashboard
 ./target/debug/betfair dashboard
 ```
 
+![Betfair Dashboard](docs/images/dashboard.png)
+
 The dashboard provides:
 - **Real-time market browser** with live price updates
 - **Interactive orderbook** with bid/ask ladder visualization
@@ -59,20 +61,20 @@ The dashboard provides:
 
 ## Architecture
 
-The library provides two client architectures:
+The library provides a unified client architecture:
 
-### Modern Unified API Client (`BetfairApiClient`)
-- JSON-RPC based REST API client
-- Built-in rate limiting per endpoint type
+### UnifiedBetfairClient
+- Combines REST API and streaming capabilities in a single client
+- JSON-RPC based REST API operations
+- Real-time WebSocket streaming for market data
+- Built-in rate limiting per endpoint type (navigation/data/transaction)
 - Automatic retry with exponential backoff
-- Session token management
+- Shared session token management
 - Flexible market filtering with optional parameters
 
-### Legacy Client with Streaming (`BetfairClient`)
-- WebSocket streaming for real-time market data
-- Order placement and management
-- Orderbook maintenance with callbacks
-- Heartbeat monitoring and auto-reconnection
+### Component Clients (for advanced usage)
+- **BetfairApiClient**: REST API operations only
+- **StreamingClient**: Real-time streaming only (can accept external session token)
 
 ## Features
 
@@ -81,27 +83,26 @@ The library provides two client architectures:
 The library provides real-time market data streaming through Betfair's streaming API with non-blocking architecture:
 
 ```rust
-use betfair_rs::{config, betfair, model};
-use std::collections::HashMap;
+use betfair_rs::{Config, UnifiedBetfairClient};
 
-// Initialize the client
-let config = config::Config::new()?;
-let mut betfair_client = betfair::BetfairClient::new(config);
-betfair_client.login().await?;
+// Initialize the unified client
+let config = Config::new()?;
+let mut client = UnifiedBetfairClient::new(config);
 
-// Set up orderbook callback
-betfair_client.set_orderbook_callback(|market_id, orderbooks| {
-    println!("Market ID: {}", market_id);
-    for (runner_id, orderbook) in orderbooks {
-        println!("Runner ID: {}", runner_id);
-        println!("{}", orderbook.pretty_print());
-    }
-});
+// Login (handles both REST and streaming authentication)
+client.login().await?;
 
-// Connect and subscribe to markets
-betfair_client.connect().await?;
-betfair_client.subscribe_to_markets(vec!["1.241529489".to_string()], 3).await?;
-betfair_client.start_listening().await?;
+// Start streaming
+client.start_streaming().await?;
+
+// Subscribe to markets for real-time updates
+client.subscribe_to_market("1.241529489".to_string(), 3).await?;
+
+// Access streaming orderbooks
+if let Some(orderbooks) = client.get_streaming_orderbooks() {
+    let books = orderbooks.read().unwrap();
+    // Process orderbook data
+}
 ```
 
 The streaming implementation includes:
@@ -120,53 +121,67 @@ The library provides comprehensive order management capabilities:
 #### Order Placement and Cancellation
 
 ```rust
-use betfair_rs::{config, betfair, order::OrderSide};
+use betfair_rs::{Config, UnifiedBetfairClient, dto::order::*, dto::common::Side};
 
-// Initialize the client
-let config = config::Config::new()?;
-let mut betfair_client = betfair::BetfairClient::new(config);
-betfair_client.login().await?;
+// Initialize the unified client
+let config = Config::new()?;
+let mut client = UnifiedBetfairClient::new(config);
+client.login().await?;
 
 // Place a back order
-let market_id = "1.240634817".to_string();
-let runner_id = 39674645;
-let side = OrderSide::Back;
-let price = 10.0;
-let size = 1.0;
+let market_id = "1.240634817";
+let instruction = PlaceInstruction {
+    order_type: OrderType::Limit,
+    selection_id: 39674645,
+    side: Side::Back,
+    limit_order: Some(LimitOrder {
+        size: 10.0,
+        price: 2.5,
+        persistence_type: PersistenceType::Lapse,
+        ..Default::default()
+    }),
+    ..Default::default()
+};
 
-let order = betfair_rs::order::Order::new(market_id.clone(), runner_id, side, price, size);
-let order_response = betfair_client.place_order(order).await?;
+let request = PlaceOrdersRequest {
+    market_id: market_id.to_string(),
+    instructions: vec![instruction],
+    ..Default::default()
+};
+
+let order_response = client.place_orders(request).await?;
 
 // Cancel the order if it was placed successfully
-if let Some(bet_id) = order_response.instruction_reports[0].bet_id.clone() {
-    let cancel_response = betfair_client.cancel_order(market_id, bet_id).await?;
-    println!("Order canceled: {:?}", cancel_response);
+if let Some(report) = order_response.instruction_reports.and_then(|r| r.first()) {
+    if let Some(bet_id) = &report.bet_id {
+        let cancel_request = CancelOrdersRequest {
+            market_id: Some(market_id.to_string()),
+            instructions: Some(vec![CancelInstruction {
+                bet_id: bet_id.clone(),
+                size_reduction: None,
+            }]),
+            ..Default::default()
+        };
+        let cancel_response = client.cancel_orders(cancel_request).await?;
+        println!("Order canceled: {:?}", cancel_response);
+    }
 }
 ```
 
-#### Order Streaming and Updates
+#### List Current Orders
 
 ```rust
-use betfair_rs::{config, betfair, msg_model::OrderChangeMessage};
+// Get current orders
+let request = ListCurrentOrdersRequest {
+    bet_ids: None,
+    market_ids: None,
+    order_projection: Some(OrderProjection::All),
+    ..Default::default()
+};
 
-// Set up order update callback
-betfair_client.set_orderupdate_callback(|order_change: OrderChangeMessage| {
-    // Handle order updates including:
-    // - Initial order state
-    // - Order status changes
-    // - Matched/unmatched amounts
-    // - Order cancellations
-});
-```
+let current_orders = client.list_current_orders(request).await?;
 
-#### Order Reconciliation
-
-```rust
-// Get current status of orders
-let bet_ids = vec!["384087398733".to_string(), "384086212322".to_string()];
-let order_statuses = betfair_client.get_order_status(bet_ids).await?;
-
-// Process order statuses including:
+// Process order information including:
 // - Execution status
 // - Matched/remaining amounts
 // - Price information
@@ -176,7 +191,10 @@ let order_statuses = betfair_client.get_order_status(bet_ids).await?;
 
 ```rust
 // Get account funds information
-let account_funds = betfair_client.get_account_funds().await?;
+let request = GetAccountFundsRequest {
+    wallet: None,
+};
+let account_funds = client.get_account_funds(request).await?;
 
 // Access account details including:
 // - Available balance
@@ -185,6 +203,9 @@ let account_funds = betfair_client.get_account_funds().await?;
 // - Discount rates
 // - Points balance
 // - Wallet information
+
+// Get account details
+let account_details = client.get_account_details().await?;
 ```
 
 ## Example

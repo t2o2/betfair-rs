@@ -8,5 +8,5 @@ certs/client.pfx
 config.toml
 target/*
 target/debug/*
-
 client.pfx
+.DS_Store

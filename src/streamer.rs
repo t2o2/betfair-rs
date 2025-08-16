@@ -182,7 +182,7 @@ impl BetfairStreamer {
         self.subscribed_markets.insert((market_id, levels));
         Ok(())
     }
-    
+
     pub fn get_message_sender(&self) -> Option<mpsc::Sender<String>> {
         self.message_sender.clone()
     }
