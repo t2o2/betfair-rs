@@ -32,3 +32,9 @@ chrono = "0.4"
 clap = { version = "4.5.44", features = ["derive"] }
 ratatui = "0.28"
 crossterm = "0.28"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.5"
+tempfile = "3.8"
+pretty_assertions = "1.4"
