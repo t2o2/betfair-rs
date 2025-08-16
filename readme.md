@@ -2,7 +2,7 @@
 
 [![Unit Tests](https://github.com/t2o2/betfair-rs/actions/workflows/unit_tests.yml/badge.svg)](https://github.com/t2o2/betfair-rs/actions/workflows/unit_tests.yml)
 
-The goal of the project is to allow user to trade with betfair with the benefit of the speed of rust and a stable simple interface to trade.
+A high-performance Rust library for interacting with the Betfair Exchange API, featuring real-time market data streaming, order management, and an interactive terminal dashboard for trading.
 
 ## Setup
 
@@ -23,11 +23,62 @@ pfx_path = "[absolute path]"
 pfx_password = ""
 ```
 
+## Quick Start
+
+### Running the Interactive Dashboard
+
+The library includes a powerful interactive terminal dashboard for real-time trading:
+
+```bash
+# Using cargo run
+cargo run -- dashboard
+
+# Or after building
+./target/debug/betfair dashboard
+```
+
+The dashboard provides:
+- **Real-time market browser** with live price updates
+- **Interactive orderbook** with bid/ask ladder visualization
+- **Active order management** with one-click cancellation
+- **Quick order placement** with keyboard shortcuts
+- **Account balance tracking** and P&L monitoring
+- **Vim-style navigation** (hjkl, Tab to switch panels)
+
+### Key Bindings
+
+- `Tab`/`Shift+Tab` - Navigate between panels
+- `j/k` or `↑/↓` - Move up/down in lists
+- `h/l` or `←/→` - Navigate horizontally (in order entry)
+- `Enter` - Select market/confirm order
+- `o` - Enter order placement mode
+- `c` - Cancel selected order
+- `r` - Refresh market data
+- `?` - Show help
+- `q` - Quit application
+
+## Architecture
+
+The library provides two client architectures:
+
+### Modern Unified API Client (`BetfairApiClient`)
+- JSON-RPC based REST API client
+- Built-in rate limiting per endpoint type
+- Automatic retry with exponential backoff
+- Session token management
+- Flexible market filtering with optional parameters
+
+### Legacy Client with Streaming (`BetfairClient`)
+- WebSocket streaming for real-time market data
+- Order placement and management
+- Orderbook maintenance with callbacks
+- Heartbeat monitoring and auto-reconnection
+
 ## Features
 
 ### Streaming Capabilities
 
-The library provides real-time market data streaming through Betfair's streaming API. Here's how to use it:
+The library provides real-time market data streaming through Betfair's streaming API with non-blocking architecture:
 
 ```rust
 use betfair_rs::{config, betfair, model};
@@ -54,11 +105,13 @@ betfair_client.start_listening().await?;
 ```
 
 The streaming implementation includes:
+- Non-blocking architecture for real-time updates
 - Real-time orderbook updates with price levels
 - Automatic heartbeat monitoring and reconnection
 - Support for multiple market subscriptions
 - Configurable orderbook depth (1-10 levels)
 - Thread-safe orderbook state management
+- Direct subscription management for improved performance
 
 ### Order Management
 
@@ -134,9 +187,33 @@ let account_funds = betfair_client.get_account_funds().await?;
 // - Wallet information
 ```
 
-For complete examples of all features, see the `examples/` directory:
-- `streaming.rs` - Market data streaming
-- `streaming_order.rs` - Order updates streaming
-- `ordering.rs` - Order placement and management
-- `reconcile.rs` - Order status reconciliation
-- `account.rs` - Account information and funds
+## Example
+
+The main example application is the interactive dashboard:
+- `examples/dashboard.rs` - Full-featured terminal dashboard with real-time trading, market browsing, order management, and account monitoring
+
+## Performance
+
+The library is built for high-performance trading with:
+- Asynchronous I/O using Tokio
+- Rate limiting to respect API limits
+- Efficient JSON parsing with Serde
+- Non-blocking streaming architecture
+- Minimal memory allocations in hot paths
+
+## Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run library tests only (no credentials required)
+cargo test --lib
+
+# Run specific test
+cargo test test_name
+```
+
+## License
+
+[Add your license information here]
