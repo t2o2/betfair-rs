@@ -2288,8 +2288,22 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_runner_selection(app, 8);
                     }
                 }
-                // 'c' key to cancel order in Active Orders panel
-                KeyCode::Char('c') | KeyCode::Char('C') => {
+                // 'c' key - cancel order in Active Orders panel, or select item 12 in Market Browser
+                KeyCode::Char('c') => {
+                    if app.active_panel == Panel::ActiveOrders {
+                        if let Some(index) = app.selected_order {
+                            let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
+                            if let Some(bet_id) = bet_id {
+                                app.cancel_order(&bet_id).await?;
+                            }
+                        }
+                    } else if app.active_panel == Panel::MarketBrowser {
+                        // 'c' selects item 12 (index 11) in the market browser
+                        let index = 11; // 9 + ('c' - 'a') = 9 + 2 = 11
+                        handle_direct_selection(app, index).await?;
+                    }
+                }
+                KeyCode::Char('C') => {
                     if app.active_panel == Panel::ActiveOrders {
                         if let Some(index) = app.selected_order {
                             let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
@@ -2299,7 +2313,7 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         }
                     }
                 }
-                // Letter keys a-z for items 10-35
+                // Letter keys a-z (except 'c') for items 10-35
                 KeyCode::Char(c) if c.is_ascii_lowercase() && c != 'c' => {
                     if app.active_panel == Panel::MarketBrowser {
                         let index = 9 + (c as usize - 'a' as usize);
