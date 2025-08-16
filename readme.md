@@ -63,18 +63,20 @@ The dashboard provides:
 
 The library provides a unified client architecture:
 
-### UnifiedBetfairClient
-- Combines REST API and streaming capabilities in a single client
-- JSON-RPC based REST API operations
-- Real-time WebSocket streaming for market data
-- Built-in rate limiting per endpoint type (navigation/data/transaction)
-- Automatic retry with exponential backoff
-- Shared session token management
-- Flexible market filtering with optional parameters
+### Core Components
 
-### Component Clients (for advanced usage)
-- **BetfairApiClient**: REST API operations only
-- **StreamingClient**: Real-time streaming only (can accept external session token)
+- **BetfairApiClient**: REST API client for all trading operations
+  - JSON-RPC based API calls
+  - Built-in rate limiting per endpoint type (navigation/data/transaction)
+  - Automatic retry with exponential backoff
+  - Session token management
+  - Flexible market filtering with optional parameters
+
+- **StreamingClient**: Real-time WebSocket streaming client
+  - Non-blocking architecture for market data updates
+  - Can accept external session token from BetfairApiClient
+  - Shared orderbook state management
+  - Direct subscription management
 
 ## Features
 
@@ -145,11 +147,13 @@ The library provides comprehensive order management capabilities:
 #### Order Placement and Cancellation
 
 ```rust
-use betfair_rs::{Config, UnifiedBetfairClient, dto::order::*, dto::common::Side};
+use betfair_rs::{Config, BetfairApiClient};
+use betfair_rs::dto::order::*;
+use betfair_rs::dto::common::Side;
 
-// Initialize the unified client
+// Initialize the API client
 let config = Config::new()?;
-let mut client = UnifiedBetfairClient::new(config);
+let mut client = BetfairApiClient::new(config);
 client.login().await?;
 
 // Place a back order
@@ -214,6 +218,8 @@ let current_orders = client.list_current_orders(request).await?;
 ### Account Management
 
 ```rust
+use betfair_rs::dto::account::GetAccountFundsRequest;
+
 // Get account funds information
 let request = GetAccountFundsRequest {
     wallet: None,
