@@ -1,7 +1,7 @@
 use betfair_rs::config::{BetfairConfig, Config};
 use betfair_rs::streaming_client::StreamingClient;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 fn create_test_config() -> Config {
     Config {

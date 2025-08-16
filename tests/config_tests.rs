@@ -1,9 +1,14 @@
 use betfair_rs::config::{BetfairConfig, Config};
 use std::fs;
+use std::sync::Mutex;
 use tempfile::tempdir;
+
+static DIR_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_config_new_with_valid_file() {
+    let _guard = DIR_MUTEX.lock().unwrap();
+
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
 
@@ -36,6 +41,8 @@ pfx_password = "cert_pass"
 
 #[test]
 fn test_config_new_with_missing_file() {
+    let _guard = DIR_MUTEX.lock().unwrap();
+
     let dir = tempdir().unwrap();
 
     let original_dir = std::env::current_dir().unwrap();
@@ -50,6 +57,8 @@ fn test_config_new_with_missing_file() {
 
 #[test]
 fn test_config_new_with_invalid_toml() {
+    let _guard = DIR_MUTEX.lock().unwrap();
+
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
 
@@ -72,6 +81,8 @@ username = "test_user"
 
 #[test]
 fn test_config_new_with_missing_fields() {
+    let _guard = DIR_MUTEX.lock().unwrap();
+
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
 
