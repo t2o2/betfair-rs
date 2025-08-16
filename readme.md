@@ -83,35 +83,59 @@ The library provides a unified client architecture:
 The library provides real-time market data streaming through Betfair's streaming API with non-blocking architecture:
 
 ```rust
-use betfair_rs::{Config, UnifiedBetfairClient};
+use betfair_rs::{BetfairApiClient, StreamingClient, Config};
+use std::time::Duration;
 
-// Initialize the unified client
+// Initialize configuration and API client
 let config = Config::new()?;
-let mut client = UnifiedBetfairClient::new(config);
+let mut api_client = BetfairApiClient::new(config.clone());
 
-// Login (handles both REST and streaming authentication)
-client.login().await?;
+// Login and get session token
+api_client.login().await?;
+let session_token = api_client.get_session_token()
+    .ok_or_else(|| anyhow::anyhow!("Failed to get session token"))?;
 
-// Start streaming
-client.start_streaming().await?;
+// Create streaming client with session token
+let mut streaming_client = StreamingClient::with_session_token(
+    config.betfair.api_key.clone(),
+    session_token,
+);
 
-// Subscribe to markets for real-time updates
-client.subscribe_to_market("1.241529489".to_string(), 3).await?;
+// Start streaming connection
+streaming_client.start().await?;
 
-// Access streaming orderbooks
-if let Some(orderbooks) = client.get_streaming_orderbooks() {
-    let books = orderbooks.read().unwrap();
-    // Process orderbook data
+// Subscribe to market with orderbook depth
+let market_id = "1.244922596";
+streaming_client.subscribe_to_market(market_id.to_string(), 10).await?;
+
+// Monitor orderbook updates in a loop
+let orderbooks = streaming_client.get_orderbooks();
+loop {
+    if let Ok(books) = orderbooks.read() {
+        if let Some(market_books) = books.get(market_id) {
+            for (selection_id, orderbook) in market_books {
+                // Access bid/ask price levels
+                if let (Some(best_bid), Some(best_ask)) = 
+                    (orderbook.get_best_bid(), orderbook.get_best_ask()) {
+                    println!("Selection {}: Bid {:.2} @ {:.2}, Ask {:.2} @ {:.2}", 
+                        selection_id, 
+                        best_bid.size, best_bid.price,
+                        best_ask.size, best_ask.price);
+                }
+            }
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
 }
 ```
 
 The streaming implementation includes:
 - Non-blocking architecture for real-time updates
-- Real-time orderbook updates with price levels
+- Real-time orderbook updates with bid/ask price levels
 - Automatic heartbeat monitoring and reconnection
 - Support for multiple market subscriptions
 - Configurable orderbook depth (1-10 levels)
-- Thread-safe orderbook state management
+- Thread-safe orderbook state management via Arc<RwLock>
 - Direct subscription management for improved performance
 
 ### Order Management
@@ -208,10 +232,10 @@ let account_funds = client.get_account_funds(request).await?;
 let account_details = client.get_account_details().await?;
 ```
 
-## Example
+## Examples
 
-The main example application is the interactive dashboard:
 - `examples/dashboard.rs` - Full-featured terminal dashboard with real-time trading, market browsing, order management, and account monitoring
+- `examples/streaming_orderbook.rs` - Simple streaming orderbook viewer that displays real-time bid/ask data for a specific market
 
 ## Performance
 
