@@ -142,6 +142,7 @@ struct App {
     selected_event: Option<usize>,
     markets: Vec<Market>,
     selected_market: Option<usize>,
+    market_browser_scroll_offset: usize, // Viewport scroll offset for market browser
 
     // Order book state
     current_orderbook: Option<OrderBookData>,
@@ -152,6 +153,7 @@ struct App {
     // Active orders state
     active_orders: Vec<Order>,
     selected_order: Option<usize>,
+    active_orders_scroll_offset: usize, // Viewport scroll offset for active orders
 
     // Order entry state
     order_market_id: String,
@@ -201,6 +203,7 @@ impl App {
             selected_event: None,
             markets: vec![],
             selected_market: None,
+            market_browser_scroll_offset: 0,
 
             current_orderbook: None,
             selected_runner: None,
@@ -209,6 +212,7 @@ impl App {
 
             active_orders: vec![],
             selected_order: None,
+            active_orders_scroll_offset: 0,
 
             order_market_id: String::new(),
             order_selection_id: String::new(),
@@ -605,6 +609,9 @@ impl App {
     }
 
     async fn load_active_orders(&mut self) -> Result<()> {
+        // Reset scroll when loading new orders
+        self.reset_active_orders_scroll();
+        
         if let Some(client) = &mut self.api_client {
             let request = ListCurrentOrdersRequest {
                 bet_ids: None,
@@ -880,6 +887,50 @@ impl App {
             Panel::OrderEntry => Panel::ActiveOrders,
         };
     }
+    
+    fn update_market_browser_scroll(&mut self, viewport_height: usize) {
+        // Update scroll offset based on selected item
+        let selected_index = if !self.markets.is_empty() {
+            self.selected_market
+        } else if !self.events.is_empty() {
+            self.selected_event
+        } else if !self.competitions.is_empty() {
+            self.selected_competition
+        } else {
+            self.selected_sport
+        };
+        
+        if let Some(selected) = selected_index {
+            if selected < self.market_browser_scroll_offset {
+                // Selected item is above viewport
+                self.market_browser_scroll_offset = selected;
+            } else if selected >= self.market_browser_scroll_offset + viewport_height {
+                // Selected item is below viewport
+                self.market_browser_scroll_offset = selected.saturating_sub(viewport_height - 1);
+            }
+        }
+    }
+    
+    fn update_active_orders_scroll(&mut self, viewport_height: usize) {
+        // Update scroll offset based on selected order
+        if let Some(selected) = self.selected_order {
+            if selected < self.active_orders_scroll_offset {
+                // Selected item is above viewport
+                self.active_orders_scroll_offset = selected;
+            } else if selected >= self.active_orders_scroll_offset + viewport_height {
+                // Selected item is below viewport
+                self.active_orders_scroll_offset = selected.saturating_sub(viewport_height - 1);
+            }
+        }
+    }
+    
+    fn reset_market_browser_scroll(&mut self) {
+        self.market_browser_scroll_offset = 0;
+    }
+    
+    fn reset_active_orders_scroll(&mut self) {
+        self.active_orders_scroll_offset = 0;
+    }
 
     fn update_orderbook_from_streaming(&mut self) {
         // Update current orderbook display from streaming data if available
@@ -1037,10 +1088,13 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
         .border_style(Style::default().fg(border_color));
 
     let inner = block.inner(area);
+    
+    // Calculate visible area
+    let visible_height = inner.height as usize;
 
     // Create list items based on current navigation level with selection keys
     // Priority: markets > events > competitions > sports
-    let items: Vec<ListItem> = if !app.markets.is_empty() {
+    let all_items: Vec<ListItem> = if !app.markets.is_empty() {
         // Show markets
         app.markets
             .iter()
@@ -1121,8 +1175,15 @@ fn render_market_browser(f: &mut Frame, area: Rect, app: &App) {
             })
             .collect()
     };
+    
+    // Apply scrolling - only show items within the viewport
+    let visible_items: Vec<ListItem> = all_items
+        .into_iter()
+        .skip(app.market_browser_scroll_offset)
+        .take(visible_height)
+        .collect();
 
-    let list = List::new(items).block(Block::default());
+    let list = List::new(visible_items).block(Block::default());
 
     f.render_widget(block, area);
     f.render_widget(list, inner);
@@ -1366,8 +1427,11 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
 
     if !app.active_orders.is_empty() {
         let inner = block.inner(area);
+        
+        // Calculate visible area (accounting for header)
+        let visible_height = inner.height.saturating_sub(1) as usize; // Subtract 1 for header
 
-        let rows: Vec<Row> = app
+        let all_rows: Vec<Row> = app
             .active_orders
             .iter()
             .enumerate()
@@ -1398,13 +1462,26 @@ fn render_active_orders(f: &mut Frame, area: Rect, app: &App) {
                 ])
             })
             .collect();
+        
+        // Apply scrolling - only show rows within the viewport
+        let visible_rows: Vec<Row> = all_rows
+            .into_iter()
+            .skip(app.active_orders_scroll_offset)
+            .take(visible_height)
+            .collect();
 
         // Create a stateful table with proper selection
+        // Adjust selection index for viewport
         let mut table_state = TableState::default();
-        table_state.select(app.selected_order);
+        if let Some(selected) = app.selected_order {
+            if selected >= app.active_orders_scroll_offset 
+                && selected < app.active_orders_scroll_offset + visible_height {
+                table_state.select(Some(selected - app.active_orders_scroll_offset));
+            }
+        }
 
         let table = Table::new(
-            rows,
+            visible_rows,
             [
                 Constraint::Length(4),  // Key
                 Constraint::Length(15), // Competition
@@ -1699,6 +1776,7 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
     if !app.markets.is_empty() {
         if index < app.markets.len() {
             app.selected_market = Some(index);
+            app.update_market_browser_scroll(20);
             // Load orderbook for selected market
             if let Some(market) = app.markets.get(index) {
                 let market_id = market.id.clone();
@@ -1720,6 +1798,7 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
     } else if !app.events.is_empty() {
         if index < app.events.len() {
             app.selected_event = Some(index);
+            app.update_market_browser_scroll(20);
             // Load markets for selected event
             if let Some(event) = app.events.get(index) {
                 let event_id = event.0.clone();
@@ -1729,12 +1808,14 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
                 if let Some(sport_id) = sport_id {
                     app.load_markets(&sport_id, Some(&event_id)).await?;
                     app.selected_market = None;
+                    app.reset_market_browser_scroll();
                 }
             }
         }
     } else if !app.competitions.is_empty() {
         if index < app.competitions.len() {
             app.selected_competition = Some(index);
+            app.update_market_browser_scroll(20);
             // Load events for selected competition
             if let Some(comp) = app.competitions.get(index) {
                 let comp_id = comp.0.clone();
@@ -1744,16 +1825,19 @@ async fn handle_direct_selection(app: &mut App, index: usize) -> Result<()> {
                 if let Some(sport_id) = sport_id {
                     app.load_events(&sport_id, Some(&comp_id)).await?;
                     app.selected_event = None;
+                    app.reset_market_browser_scroll();
                 }
             }
         }
     } else if !app.sports.is_empty() && index < app.sports.len() {
         app.selected_sport = Some(index);
+        app.update_market_browser_scroll(20);
         // Load competitions for selected sport
         if let Some(sport) = app.sports.get(index) {
             let sport_id = sport.0.clone();
             app.load_competitions(&sport_id).await?;
             app.selected_competition = None;
+            app.reset_market_browser_scroll();
         }
     }
     Ok(())
@@ -1792,24 +1876,28 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(selected) = app.selected_market {
                                     if selected > 0 {
                                         app.selected_market = Some(selected - 1);
+                                        app.update_market_browser_scroll(20); // Assume ~20 visible items
                                     }
                                 }
                             } else if !app.events.is_empty() {
                                 if let Some(selected) = app.selected_event {
                                     if selected > 0 {
                                         app.selected_event = Some(selected - 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 }
                             } else if !app.competitions.is_empty() {
                                 if let Some(selected) = app.selected_competition {
                                     if selected > 0 {
                                         app.selected_competition = Some(selected - 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 }
                             } else if !app.sports.is_empty() {
                                 if let Some(selected) = app.selected_sport {
                                     if selected > 0 {
                                         app.selected_sport = Some(selected - 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 }
                             }
@@ -1834,9 +1922,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(selected) = app.selected_order {
                                     if selected > 0 {
                                         app.selected_order = Some(selected - 1);
+                                        app.update_active_orders_scroll(10); // Assume ~10 visible items
                                     }
                                 } else {
                                     app.selected_order = Some(0);
+                                    app.update_active_orders_scroll(10);
                                 }
                             }
                         }
@@ -1857,33 +1947,41 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(selected) = app.selected_market {
                                     if selected < app.markets.len() - 1 {
                                         app.selected_market = Some(selected + 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 } else {
                                     app.selected_market = Some(0);
+                                    app.update_market_browser_scroll(20);
                                 }
                             } else if !app.events.is_empty() {
                                 if let Some(selected) = app.selected_event {
                                     if selected < app.events.len() - 1 {
                                         app.selected_event = Some(selected + 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 } else {
                                     app.selected_event = Some(0);
+                                    app.update_market_browser_scroll(20);
                                 }
                             } else if !app.competitions.is_empty() {
                                 if let Some(selected) = app.selected_competition {
                                     if selected < app.competitions.len() - 1 {
                                         app.selected_competition = Some(selected + 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 } else {
                                     app.selected_competition = Some(0);
+                                    app.update_market_browser_scroll(20);
                                 }
                             } else if !app.sports.is_empty() {
                                 if let Some(selected) = app.selected_sport {
                                     if selected < app.sports.len() - 1 {
                                         app.selected_sport = Some(selected + 1);
+                                        app.update_market_browser_scroll(20);
                                     }
                                 } else {
                                     app.selected_sport = Some(0);
+                                    app.update_market_browser_scroll(20);
                                 }
                             }
                         }
@@ -1907,9 +2005,11 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(selected) = app.selected_order {
                                     if selected < app.active_orders.len() - 1 {
                                         app.selected_order = Some(selected + 1);
+                                        app.update_active_orders_scroll(10);
                                     }
                                 } else {
                                     app.selected_order = Some(0);
+                                    app.update_active_orders_scroll(10);
                                 }
                             }
                         }
@@ -2019,18 +2119,21 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         app.selected_market = None;
                         app.current_orderbook = None;
                         app.order_market_id.clear();
+                        app.reset_market_browser_scroll();
                         app.status_message = "Back to events".to_string();
                         // Events should already be loaded, just need to display them
                     } else if !app.events.is_empty() {
                         // We're viewing events - go back to competitions
                         app.events.clear();
                         app.selected_event = None;
+                        app.reset_market_browser_scroll();
                         app.status_message = "Back to competitions".to_string();
                         // Competitions should already be loaded
                     } else if !app.competitions.is_empty() {
                         // We're viewing competitions - go back to sports
                         app.competitions.clear();
                         app.selected_competition = None;
+                        app.reset_market_browser_scroll();
                         app.status_message = "Back to sports".to_string();
                         // Sports list remains
                     } else if app.selected_sport.is_some() {
@@ -2051,11 +2154,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 0).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if !app.active_orders.is_empty() {
-                            Some(0)
+                        if !app.active_orders.is_empty() {
+                            app.selected_order = Some(0);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 0);
                     }
@@ -2064,11 +2168,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 1).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 1 {
-                            Some(1)
+                        if app.active_orders.len() > 1 {
+                            app.selected_order = Some(1);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 1);
                     }
@@ -2077,11 +2182,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 2).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 2 {
-                            Some(2)
+                        if app.active_orders.len() > 2 {
+                            app.selected_order = Some(2);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 2);
                     }
@@ -2090,11 +2196,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 3).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 3 {
-                            Some(3)
+                        if app.active_orders.len() > 3 {
+                            app.selected_order = Some(3);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 3);
                     }
@@ -2103,11 +2210,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 4).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 4 {
-                            Some(4)
+                        if app.active_orders.len() > 4 {
+                            app.selected_order = Some(4);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 4);
                     }
@@ -2116,11 +2224,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 5).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 5 {
-                            Some(5)
+                        if app.active_orders.len() > 5 {
+                            app.selected_order = Some(5);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 5);
                     }
@@ -2129,11 +2238,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 6).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 6 {
-                            Some(6)
+                        if app.active_orders.len() > 6 {
+                            app.selected_order = Some(6);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 6);
                     }
@@ -2142,11 +2252,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 7).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 7 {
-                            Some(7)
+                        if app.active_orders.len() > 7 {
+                            app.selected_order = Some(7);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 7);
                     }
@@ -2155,11 +2266,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     if app.active_panel == Panel::MarketBrowser {
                         handle_direct_selection(app, 8).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
-                        app.selected_order = if app.active_orders.len() > 8 {
-                            Some(8)
+                        if app.active_orders.len() > 8 {
+                            app.selected_order = Some(8);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     } else if app.active_panel == Panel::OrderBook {
                         handle_runner_selection(app, 8);
                     }
@@ -2182,11 +2294,12 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         handle_direct_selection(app, index).await?;
                     } else if app.active_panel == Panel::ActiveOrders {
                         let index = 9 + (c as usize - 'a' as usize);
-                        app.selected_order = if app.active_orders.len() > index {
-                            Some(index)
+                        if app.active_orders.len() > index {
+                            app.selected_order = Some(index);
+                            app.update_active_orders_scroll(10);
                         } else {
-                            None
-                        };
+                            app.selected_order = None;
+                        }
                     }
                 }
                 _ => {}
