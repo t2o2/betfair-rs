@@ -1,0 +1,22 @@
+# Example configuration file for betfair-rs
+# Copy this file to config.toml and fill in your actual credentials
+
+[betfair]
+# Your Betfair username
+username = "your_betfair_username"
+
+# Your Betfair password
+password = "your_betfair_password"
+
+# Your Betfair API key (application key)
+# Get this from https://myaccount.betfair.com/account/admin/developerApps
+api_key = "your_api_key"
+
+# Path to your PKCS#12 certificate file (.pfx)
+# This should be an absolute path to your certificate file
+# Convert your .crt and .key files using:
+# openssl pkcs12 -export -out client.pfx -inkey client.key -in client.crt
+pfx_path = "/absolute/path/to/your/client.pfx"
+
+# Password for your PKCS#12 certificate
+pfx_password = "your_certificate_password"

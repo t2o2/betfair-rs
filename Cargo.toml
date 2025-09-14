@@ -1,11 +1,16 @@
 [package]
 name = "betfair-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Betfair API client for Rust"
+authors = ["Chuan Bai"]
+description = "A high-performance Rust library for the Betfair Exchange API with real-time streaming, order management, and interactive terminal dashboard"
 license = "MIT"
 repository = "https://github.com/t2o2/betfair-rs"
-keywords = ["betfair", "betting", "trading"]
+homepage = "https://github.com/t2o2/betfair-rs"
+documentation = "https://docs.rs/betfair-rs"
+readme = "README.md"
+keywords = ["betfair", "betting", "trading", "api", "streaming"]
+categories = ["api-bindings", "web-programming", "asynchronous"]
 
 [[bin]]
 name = "betfair"
