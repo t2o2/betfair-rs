@@ -111,7 +111,7 @@ mod tests {
             },
             market_count: 100,
         };
-        
+
         assert_eq!(sport.event_type.id, "1");
         assert_eq!(sport.event_type.name, "Soccer");
         assert_eq!(sport.market_count, 100);
@@ -123,7 +123,7 @@ mod tests {
             id: "2".to_string(),
             name: "Tennis".to_string(),
         };
-        
+
         assert_eq!(event_type.id, "2");
         assert_eq!(event_type.name, "Tennis");
     }
@@ -137,7 +137,7 @@ mod tests {
             },
             market_count: 50,
         };
-        
+
         let json = serde_json::to_string(&sport).unwrap();
         assert!(json.contains("\"eventType\""));
         assert!(json.contains("\"marketCount\":50"));
@@ -152,7 +152,7 @@ mod tests {
             },
             "marketCount": 25
         }"#;
-        
+
         let sport: Sport = serde_json::from_str(json).unwrap();
         assert_eq!(sport.event_type.id, "3");
         assert_eq!(sport.event_type.name, "Golf");

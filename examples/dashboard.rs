@@ -460,75 +460,86 @@ impl App {
             // Read from streaming orderbooks - retry a few times if no data yet
             let mut retries = 0;
             while retries < 3 {
-                let orderbooks = self.streaming_orderbooks.read().unwrap();
-                if let Some(market_orderbooks) = orderbooks.get(market_id) {
-                    if !market_orderbooks.is_empty() {
-                let mut runner_books = vec![];
+                // Process orderbooks in a separate scope to ensure lock is dropped
+                let found_data = {
+                    let orderbooks = self.streaming_orderbooks.read().unwrap();
+                    if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                        if !market_orderbooks.is_empty() {
+                            let mut runner_books = vec![];
 
-                for (runner_id_str, orderbook) in market_orderbooks {
-                    let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
+                            for (runner_id_str, orderbook) in market_orderbooks {
+                                let runner_id: u64 = runner_id_str.parse().unwrap_or(0);
 
-                    // Convert streaming orderbook to our format
-                    let bids: Vec<(f64, f64)> = orderbook
-                        .bids
-                        .iter()
-                        .take(10)
-                        .map(|level| (level.price, level.size))
-                        .collect();
+                                // Convert streaming orderbook to our format
+                                let bids: Vec<(f64, f64)> = orderbook
+                                    .bids
+                                    .iter()
+                                    .take(10)
+                                    .map(|level| (level.price, level.size))
+                                    .collect();
 
-                    let asks: Vec<(f64, f64)> = orderbook
-                        .asks
-                        .iter()
-                        .take(10)
-                        .map(|level| (level.price, level.size))
-                        .collect();
+                                let asks: Vec<(f64, f64)> = orderbook
+                                    .asks
+                                    .iter()
+                                    .take(10)
+                                    .map(|level| (level.price, level.size))
+                                    .collect();
 
-                    let runner_name = runner_names
-                        .get(runner_id_str)
-                        .cloned()
-                        .unwrap_or_else(|| format!("Runner {runner_id}"));
+                                let runner_name = runner_names
+                                    .get(runner_id_str)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("Runner {runner_id}"));
 
-                    runner_books.push(RunnerOrderBook {
-                        runner_id,
-                        runner_name,
-                        bids,
-                        asks,
-                        last_traded: None,
-                        total_matched: 0.0,
-                        is_streaming: true,
-                        last_update: None,
-                        prev_best_bid: None,
-                        prev_best_ask: None,
-                    });
-                }
+                                runner_books.push(RunnerOrderBook {
+                                    runner_id,
+                                    runner_name,
+                                    bids,
+                                    asks,
+                                    last_traded: None,
+                                    total_matched: 0.0,
+                                    is_streaming: true,
+                                    last_update: None,
+                                    prev_best_bid: None,
+                                    prev_best_ask: None,
+                                });
+                            }
 
-                // Sort runners by ID for consistent ordering
-                runner_books.sort_by_key(|r| r.runner_id);
+                            // Sort runners by ID for consistent ordering
+                            runner_books.sort_by_key(|r| r.runner_id);
 
-                self.current_orderbook = Some(OrderBookData {
-                    market_id: market_id.to_string(),
-                    runners: runner_books,
-                });
+                            self.current_orderbook = Some(OrderBookData {
+                                market_id: market_id.to_string(),
+                                runners: runner_books,
+                            });
 
-                if self.selected_runner.is_none()
-                    && !self.current_orderbook.as_ref().unwrap().runners.is_empty()
-                {
-                    self.selected_runner = Some(0);
-                }
+                            if self.selected_runner.is_none()
+                                && !self.current_orderbook.as_ref().unwrap().runners.is_empty()
+                            {
+                                self.selected_runner = Some(0);
+                            }
 
-                        return Ok(());
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
                     }
+                }; // Lock is dropped here
+
+                if found_data {
+                    return Ok(());
                 }
-                drop(orderbooks); // Release lock before sleeping
-                
+
                 if retries < 2 {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
                 retries += 1;
             }
-            
+
             // If we still don't have streaming data after retries, fall back to polling
-            self.status_message = format!("No streaming data for market {market_id}, using polling");
+            self.status_message =
+                format!("No streaming data for market {market_id}, using polling");
         }
 
         // Fall back to polling if streaming not available or failed

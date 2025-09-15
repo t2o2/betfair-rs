@@ -92,12 +92,12 @@ mod tests {
     #[tokio::test]
     async fn test_set_state_connected() {
         let manager = ConnectionManager::new();
-        
+
         manager.set_state(ConnectionState::Connected).await;
         assert_eq!(manager.get_state().await, ConnectionState::Connected);
         assert!(manager.is_connected().await);
         assert_eq!(manager.get_reconnect_attempts().await, 0);
-        
+
         sleep(Duration::from_millis(10)).await;
         let duration = manager.last_connected_duration().await;
         assert!(duration.is_some());
@@ -107,14 +107,14 @@ mod tests {
     #[tokio::test]
     async fn test_set_state_reconnecting() {
         let manager = ConnectionManager::new();
-        
+
         manager.set_state(ConnectionState::Reconnecting).await;
         assert_eq!(manager.get_state().await, ConnectionState::Reconnecting);
         assert_eq!(manager.get_reconnect_attempts().await, 1);
-        
+
         manager.set_state(ConnectionState::Reconnecting).await;
         assert_eq!(manager.get_reconnect_attempts().await, 2);
-        
+
         manager.set_state(ConnectionState::Reconnecting).await;
         assert_eq!(manager.get_reconnect_attempts().await, 3);
     }
@@ -122,11 +122,11 @@ mod tests {
     #[tokio::test]
     async fn test_reconnect_attempts_reset_on_connected() {
         let manager = ConnectionManager::new();
-        
+
         manager.set_state(ConnectionState::Reconnecting).await;
         manager.set_state(ConnectionState::Reconnecting).await;
         assert_eq!(manager.get_reconnect_attempts().await, 2);
-        
+
         manager.set_state(ConnectionState::Connected).await;
         assert_eq!(manager.get_reconnect_attempts().await, 0);
     }
@@ -134,35 +134,42 @@ mod tests {
     #[tokio::test]
     async fn test_state_transitions() {
         let manager = ConnectionManager::new();
-        
+
         manager.set_state(ConnectionState::Connecting).await;
         assert_eq!(manager.get_state().await, ConnectionState::Connecting);
         assert!(!manager.is_connected().await);
-        
+
         manager.set_state(ConnectionState::Connected).await;
         assert!(manager.is_connected().await);
-        
-        manager.set_state(ConnectionState::Failed("Error".to_string())).await;
-        assert_eq!(manager.get_state().await, ConnectionState::Failed("Error".to_string()));
+
+        manager
+            .set_state(ConnectionState::Failed("Error".to_string()))
+            .await;
+        assert_eq!(
+            manager.get_state().await,
+            ConnectionState::Failed("Error".to_string())
+        );
         assert!(!manager.is_connected().await);
     }
 
     #[tokio::test]
     async fn test_is_connected() {
         let manager = ConnectionManager::new();
-        
+
         assert!(!manager.is_connected().await);
-        
+
         manager.set_state(ConnectionState::Connecting).await;
         assert!(!manager.is_connected().await);
-        
+
         manager.set_state(ConnectionState::Connected).await;
         assert!(manager.is_connected().await);
-        
+
         manager.set_state(ConnectionState::Reconnecting).await;
         assert!(!manager.is_connected().await);
-        
-        manager.set_state(ConnectionState::Failed("Test".to_string())).await;
+
+        manager
+            .set_state(ConnectionState::Failed("Test".to_string()))
+            .await;
         assert!(!manager.is_connected().await);
     }
 
@@ -171,28 +178,28 @@ mod tests {
         let manager = ConnectionManager::new();
         let manager2 = manager.clone();
         let manager3 = manager.clone();
-        
+
         let handle1 = tokio::spawn(async move {
             for _ in 0..10 {
                 manager.set_state(ConnectionState::Connecting).await;
                 sleep(Duration::from_millis(1)).await;
             }
         });
-        
+
         let handle2 = tokio::spawn(async move {
             for _ in 0..10 {
                 manager2.set_state(ConnectionState::Reconnecting).await;
                 sleep(Duration::from_millis(1)).await;
             }
         });
-        
+
         let handle3 = tokio::spawn(async move {
             for _ in 0..10 {
                 let _ = manager3.get_state().await;
                 sleep(Duration::from_millis(1)).await;
             }
         });
-        
+
         let _ = tokio::join!(handle1, handle2, handle3);
     }
 
@@ -217,10 +224,10 @@ mod tests {
     async fn test_clone_manager() {
         let manager = ConnectionManager::new();
         manager.set_state(ConnectionState::Connected).await;
-        
+
         let cloned = manager.clone();
         assert_eq!(cloned.get_state().await, ConnectionState::Connected);
-        
+
         cloned.set_state(ConnectionState::Disconnected).await;
         assert_eq!(manager.get_state().await, ConnectionState::Disconnected);
     }

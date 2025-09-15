@@ -261,7 +261,7 @@ mod tests {
     fn test_unified_client_creation() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         assert!(client.get_session_token().is_none());
         assert!(!client.is_streaming_connected());
     }
@@ -270,9 +270,9 @@ mod tests {
     fn test_get_and_set_session_token() {
         let config = create_test_config();
         let mut client = UnifiedBetfairClient::new(config);
-        
+
         assert!(client.get_session_token().is_none());
-        
+
         client.set_session_token("test_token".to_string());
         assert_eq!(client.get_session_token(), Some("test_token".to_string()));
     }
@@ -281,10 +281,10 @@ mod tests {
     fn test_get_streaming_orderbooks() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         let ob1 = client.get_streaming_orderbooks();
         let ob2 = client.get_streaming_orderbooks();
-        
+
         assert!(ob1.is_none());
         assert!(ob2.is_none());
     }
@@ -293,7 +293,7 @@ mod tests {
     fn test_get_streaming_orderbooks_empty() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         let orderbooks = client.get_streaming_orderbooks();
         assert!(orderbooks.is_none());
     }
@@ -302,7 +302,7 @@ mod tests {
     fn test_market_last_update_time_not_available() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         let time = client.get_market_last_update_time("1.123456");
         assert!(time.is_none());
     }
@@ -311,7 +311,7 @@ mod tests {
     fn test_streaming_not_connected_initially() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         assert!(!client.is_streaming_connected());
     }
 
@@ -325,7 +325,7 @@ mod tests {
             market_betting_types: Some(vec!["ODDS".to_string()]),
             ..Default::default()
         };
-        
+
         assert!(filter.event_type_ids.is_some());
         assert!(filter.competition_ids.is_some());
         assert!(filter.market_ids.is_some());
@@ -360,7 +360,7 @@ mod tests {
             customer_strategy_ref: None,
             async_: None,
         };
-        
+
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions.len(), 1);
         assert_eq!(request.instructions[0].selection_id, 12345);
@@ -414,7 +414,7 @@ mod tests {
             customer_strategy_ref: None,
             async_: None,
         };
-        
+
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions.len(), 2);
         assert_eq!(request.instructions[0].selection_id, 12345);
@@ -428,7 +428,7 @@ mod tests {
     fn test_unified_client_streaming_orderbooks_initialization() {
         let config = create_test_config();
         let client = UnifiedBetfairClient::new(config);
-        
+
         let orderbooks = client.get_streaming_orderbooks();
         assert!(orderbooks.is_none());
     }

@@ -112,10 +112,10 @@ mod tests {
     #[test]
     fn test_orderbook_add_ask() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
-        
+
         assert_eq!(ob.asks.len(), 2);
         assert_eq!(ob.asks[0].price, 2.0);
         assert_eq!(ob.asks[1].price, 2.1);
@@ -124,10 +124,10 @@ mod tests {
     #[test]
     fn test_orderbook_add_bid() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_bid(0, 1.9, 200.0);
         ob.add_bid(1, 1.8, 250.0);
-        
+
         assert_eq!(ob.bids.len(), 2);
         assert_eq!(ob.bids[0].price, 1.9);
         assert_eq!(ob.bids[1].price, 1.8);
@@ -136,11 +136,11 @@ mod tests {
     #[test]
     fn test_orderbook_remove_ask_with_zero_size() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
         assert_eq!(ob.asks.len(), 2);
-        
+
         ob.add_ask(0, 2.0, 0.0);
         assert_eq!(ob.asks.len(), 1);
         assert_eq!(ob.asks[0].price, 2.1);
@@ -149,11 +149,11 @@ mod tests {
     #[test]
     fn test_orderbook_remove_bid_with_zero_size() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_bid(0, 1.9, 200.0);
         ob.add_bid(1, 1.8, 250.0);
         assert_eq!(ob.bids.len(), 2);
-        
+
         ob.add_bid(1, 1.8, 0.0);
         assert_eq!(ob.bids.len(), 1);
         assert_eq!(ob.bids[0].price, 1.9);
@@ -162,12 +162,12 @@ mod tests {
     #[test]
     fn test_orderbook_update_existing_levels() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
-        
+
         ob.add_ask(0, 2.0, 200.0);
-        
+
         assert_eq!(ob.asks.len(), 2);
         assert_eq!(ob.asks[0].size, 200.0);
         assert_eq!(ob.asks[1].size, 150.0);
@@ -176,16 +176,16 @@ mod tests {
     #[test]
     fn test_orderbook_best_bid_and_ask() {
         let mut ob = Orderbook::new();
-        
+
         assert!(ob.get_best_bid().is_none());
         assert!(ob.get_best_ask().is_none());
-        
+
         ob.add_bid(0, 1.9, 200.0);
         ob.add_bid(1, 1.8, 250.0);
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
-        
+
         assert_eq!(ob.get_best_bid().unwrap().price, 1.9);
         assert_eq!(ob.get_best_ask().unwrap().price, 2.0);
     }
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn test_orderbook_set_ts() {
         let mut ob = Orderbook::new();
-        
+
         ob.set_ts(12345678);
         assert_eq!(ob.ts, 12345678);
     }
@@ -201,10 +201,10 @@ mod tests {
     #[test]
     fn test_orderbook_pretty_print() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_bid(0, 1.9, 200.0);
-        
+
         let output = ob.pretty_print();
         assert!(output.contains("Asks:"));
         assert!(output.contains("Bids:"));
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn test_orderbook_empty() {
         let ob = Orderbook::new();
-        
+
         let output = ob.pretty_print();
         assert!(output.contains("Asks:"));
         assert!(output.contains("Bids:"));
@@ -224,20 +224,20 @@ mod tests {
     #[test]
     fn test_orderbook_mixed_operations() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
         ob.add_ask(2, 2.2, 200.0);
-        
+
         ob.add_bid(0, 1.9, 200.0);
         ob.add_bid(1, 1.8, 250.0);
-        
+
         ob.add_ask(1, 2.1, 0.0);
         ob.add_ask(3, 2.3, 300.0);
-        
+
         assert_eq!(ob.asks.len(), 3);
         assert_eq!(ob.asks[2].price, 2.3);
-        
+
         ob.add_bid(0, 1.9, 0.0);
         assert_eq!(ob.bids.len(), 1);
         assert_eq!(ob.get_best_bid().unwrap().price, 1.8);
@@ -250,7 +250,7 @@ mod tests {
             price: 1.95,
             size: 500.0,
         };
-        
+
         assert_eq!(level.level, 0);
         assert_eq!(level.price, 1.95);
         assert_eq!(level.size, 500.0);
@@ -259,10 +259,10 @@ mod tests {
     #[test]
     fn test_orderbook_with_zero_size_removes_level() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(0, 2.0, 100.0);
         assert_eq!(ob.asks.len(), 1);
-        
+
         ob.add_ask(0, 2.0, 0.0);
         assert_eq!(ob.asks.len(), 0);
     }
@@ -270,11 +270,11 @@ mod tests {
     #[test]
     fn test_orderbook_maintain_order() {
         let mut ob = Orderbook::new();
-        
+
         ob.add_ask(2, 2.2, 200.0);
         ob.add_ask(0, 2.0, 100.0);
         ob.add_ask(1, 2.1, 150.0);
-        
+
         assert_eq!(ob.asks[0].level, 0);
         assert_eq!(ob.asks[1].level, 1);
         assert_eq!(ob.asks[2].level, 2);

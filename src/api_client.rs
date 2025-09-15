@@ -593,7 +593,7 @@ impl BetfairApiClient {
 mod tests {
     use super::*;
     use crate::config::BetfairConfig;
-    
+
     fn create_test_config() -> Config {
         Config {
             betfair: BetfairConfig {
@@ -610,7 +610,7 @@ mod tests {
     fn test_api_client_creation() {
         let config = create_test_config();
         let client = BetfairApiClient::new(config);
-        
+
         assert!(client.session_token.is_none());
         assert!(client.get_session_token().is_none());
     }
@@ -619,10 +619,10 @@ mod tests {
     fn test_set_and_get_session_token() {
         let config = create_test_config();
         let mut client = BetfairApiClient::new(config);
-        
+
         let token = "test_session_token".to_string();
         client.set_session_token(token.clone());
-        
+
         assert_eq!(client.get_session_token(), Some(token));
     }
 
@@ -630,7 +630,7 @@ mod tests {
     fn test_client_has_session_token_field() {
         let config = create_test_config();
         let client = BetfairApiClient::new(config);
-        
+
         assert!(client.session_token.is_none());
     }
 
@@ -638,7 +638,7 @@ mod tests {
     fn test_client_has_api_key_in_config() {
         let config = create_test_config();
         let client = BetfairApiClient::new(config);
-        
+
         assert_eq!(client.config.betfair.api_key, "test_key");
     }
 
@@ -654,7 +654,7 @@ mod tests {
             market_type_codes: Some(vec!["MATCH_ODDS".to_string()]),
             ..Default::default()
         };
-        
+
         assert_eq!(filter.event_type_ids.unwrap()[0], "1");
         assert_eq!(filter.competition_ids.unwrap()[0], "10");
         assert_eq!(filter.market_ids.unwrap()[0], "1.123456");
@@ -688,12 +688,18 @@ mod tests {
             customer_strategy_ref: None,
             async_: None,
         };
-        
+
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions[0].selection_id, 12345);
         assert_eq!(request.instructions[0].side, Side::Back);
-        assert_eq!(request.instructions[0].limit_order.as_ref().unwrap().size, 10.0);
-        assert_eq!(request.instructions[0].limit_order.as_ref().unwrap().price, 2.0);
+        assert_eq!(
+            request.instructions[0].limit_order.as_ref().unwrap().size,
+            10.0
+        );
+        assert_eq!(
+            request.instructions[0].limit_order.as_ref().unwrap().price,
+            2.0
+        );
     }
 
     #[test]
@@ -706,7 +712,7 @@ mod tests {
             }],
             customer_ref: None,
         };
-        
+
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions[0].bet_id, "12345");
         assert_eq!(request.instructions[0].size_reduction.unwrap(), 5.0);
@@ -719,15 +725,12 @@ mod tests {
                 event_type_ids: Some(vec!["1".to_string()]),
                 ..Default::default()
             },
-            market_projection: Some(vec![
-                MarketProjection::Competition,
-                MarketProjection::Event,
-            ]),
+            market_projection: Some(vec![MarketProjection::Competition, MarketProjection::Event]),
             sort: Some(MarketSort::FirstToStart),
             max_results: Some(10i32),
             locale: Some("en".to_string()),
         };
-        
+
         assert!(request.filter.event_type_ids.is_some());
         assert_eq!(request.max_results, Some(10));
         assert_eq!(request.locale, Some("en".to_string()));
@@ -753,7 +756,7 @@ mod tests {
             matched_since: None,
             bet_ids: None,
         };
-        
+
         assert_eq!(request.market_ids[0], "1.123456");
         assert!(request.price_projection.is_some());
         assert_eq!(request.currency_code, Some("GBP".to_string()));
@@ -773,7 +776,7 @@ mod tests {
             from_record: Some(0),
             record_count: Some(100),
         };
-        
+
         assert_eq!(request.bet_ids.unwrap().len(), 2);
         assert_eq!(request.order_by, Some("BY_BET".to_string()));
         assert_eq!(request.record_count, Some(100));
@@ -784,8 +787,7 @@ mod tests {
         let request = GetAccountFundsRequest {
             wallet: Some(Wallet::Uk),
         };
-        
+
         assert!(request.wallet.is_some());
     }
-
 }

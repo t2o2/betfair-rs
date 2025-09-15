@@ -166,7 +166,7 @@ impl StreamingClient {
                             if let Ok(mut times) = last_update_times.write() {
                                 times.clear();
                             }
-                            
+
                             // Send subscription message directly through the message channel
                             let sub_msg = format!(
                                 "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
@@ -336,7 +336,7 @@ mod tests {
     fn test_set_session_token() {
         let mut client = StreamingClient::new("test_api_key".to_string());
         assert!(client.session_token.is_none());
-        
+
         client.set_session_token("new_token".to_string());
         assert_eq!(client.session_token, Some("new_token".to_string()));
     }
@@ -382,7 +382,10 @@ mod tests {
         let client = StreamingClient::new("test_api_key".to_string());
         let result = client.subscribe_to_market("1.123456".to_string(), 5).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Streaming client not started"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Streaming client not started"));
     }
 
     #[tokio::test]
@@ -390,7 +393,10 @@ mod tests {
         let client = StreamingClient::new("test_api_key".to_string());
         let result = client.unsubscribe_from_market("1.123456".to_string()).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Streaming client not started"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Streaming client not started"));
     }
 
     #[tokio::test]
@@ -430,10 +436,10 @@ mod tests {
     #[test]
     fn test_concurrent_orderbook_access() {
         use std::thread;
-        
+
         let client = Arc::new(StreamingClient::new("test_api_key".to_string()));
         let orderbooks = client.get_orderbooks();
-        
+
         let mut handles = vec![];
         for i in 0..10 {
             let ob_clone = Arc::clone(&orderbooks);
@@ -443,11 +449,11 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         let books = orderbooks.read().unwrap();
         assert_eq!(books.len(), 10);
     }
