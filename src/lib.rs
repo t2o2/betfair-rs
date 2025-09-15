@@ -8,7 +8,7 @@
 //!
 //! ```no_run
 //! use betfair_rs::{BetfairApiClient, Config};
-//! use betfair_rs::dto::market::MarketFilter;
+//! use betfair_rs::dto::market::{MarketFilter, ListMarketCatalogueRequest};
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! // Load configuration from config.toml
@@ -18,15 +18,22 @@
 //! let mut client = BetfairApiClient::new(config);
 //! client.login().await?;
 //!
-//! // List available event types (e.g., Soccer, Tennis, Horse Racing)
-//! let event_types = client.list_event_types(None).await?;
+//! // List available sports (event types)
+//! let sports = client.list_sports(None).await?;
 //!
 //! // Get markets for a specific event type
 //! let filter = MarketFilter {
 //!     event_type_ids: Some(vec!["1".to_string()]), // Soccer
 //!     ..Default::default()
 //! };
-//! let markets = client.list_market_catalogue(Some(filter), None, 10).await?;
+//! let request = ListMarketCatalogueRequest {
+//!     filter,
+//!     market_projection: None,
+//!     sort: None,
+//!     max_results: Some(10),
+//!     locale: None,
+//! };
+//! let markets = client.list_market_catalogue(request).await?;
 //! # Ok(())
 //! # }
 //! ```
