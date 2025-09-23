@@ -18,6 +18,7 @@ pub struct StreamingClient {
     orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>,
     is_connected: Arc<RwLock<bool>>,
     last_update_times: Arc<RwLock<HashMap<String, Instant>>>, // Track update times per market
+    custom_orderbook_callback: Option<Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>>,
 }
 
 #[derive(Debug)]
@@ -38,6 +39,7 @@ impl StreamingClient {
             orderbooks: Arc::new(RwLock::new(HashMap::new())),
             is_connected: Arc::new(RwLock::new(false)),
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
+            custom_orderbook_callback: None,
         }
     }
 
@@ -51,6 +53,7 @@ impl StreamingClient {
             orderbooks: Arc::new(RwLock::new(HashMap::new())),
             is_connected: Arc::new(RwLock::new(false)),
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
+            custom_orderbook_callback: None,
         }
     }
 
@@ -74,6 +77,14 @@ impl StreamingClient {
         self.last_update_times.read().ok()?.get(market_id).copied()
     }
 
+    /// Set a custom orderbook callback that will be called immediately when new data arrives
+    pub fn set_orderbook_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+    {
+        self.custom_orderbook_callback = Some(Arc::new(callback));
+    }
+
     /// Initialize and start the streaming client in a background task
     pub async fn start(&mut self) -> Result<()> {
         // Ensure we have a session token
@@ -94,6 +105,7 @@ impl StreamingClient {
         let orderbooks = self.orderbooks.clone();
         let is_connected = self.is_connected.clone();
         let last_update_times = self.last_update_times.clone();
+        let custom_callback = self.custom_orderbook_callback.clone();
 
         // Create a oneshot channel to signal when ready
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -109,12 +121,18 @@ impl StreamingClient {
             let orderbooks_ref = orderbooks.clone();
             let update_times_ref = last_update_times.clone();
             streamer.set_orderbook_callback(move |market_id, runner_orderbooks| {
+                // Default behavior: update the shared HashMap
                 if let Ok(mut obs) = orderbooks_ref.write() {
-                    obs.insert(market_id.clone(), runner_orderbooks);
+                    obs.insert(market_id.clone(), runner_orderbooks.clone());
                 }
                 // Track update time
                 if let Ok(mut times) = update_times_ref.write() {
-                    times.insert(market_id, Instant::now());
+                    times.insert(market_id.clone(), Instant::now());
+                }
+
+                // Call custom callback if set
+                if let Some(ref callback) = custom_callback {
+                    callback(market_id, runner_orderbooks);
                 }
             });
 

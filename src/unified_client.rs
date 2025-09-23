@@ -213,6 +213,19 @@ impl UnifiedBetfairClient {
         Ok(())
     }
 
+    /// Set a custom orderbook callback that will be called immediately when new data arrives
+    pub fn set_orderbook_callback<F>(&mut self, callback: F) -> Result<()>
+    where
+        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+    {
+        let streaming = self.streaming_client.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("Streaming client not initialized. Call login() first.")
+        })?;
+
+        streaming.set_orderbook_callback(callback);
+        Ok(())
+    }
+
     // ========== Convenience Methods ==========
 
     /// Place an order and subscribe to updates for the market
