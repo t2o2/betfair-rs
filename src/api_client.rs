@@ -26,8 +26,18 @@ pub struct BetfairApiClient {
 impl BetfairApiClient {
     /// Create a new API client
     pub fn new(config: Config) -> Self {
+        let client = if let Some(proxy_url) = &config.betfair.proxy_url {
+            Client::builder()
+                .proxy(reqwest::Proxy::all(proxy_url).expect("Invalid proxy URL"))
+                .danger_accept_invalid_certs(true)
+                .build()
+                .expect("Failed to create client with proxy")
+        } else {
+            Client::new()
+        };
+
         Self {
-            client: Client::new(),
+            client,
             config: Arc::new(config),
             session_token: None,
             retry_policy: RetryPolicy::default(),
@@ -51,6 +61,7 @@ impl BetfairApiClient {
                 let password = password.clone();
                 let pfx_path = pfx_path.clone();
                 let pfx_password = pfx_password.clone();
+                let proxy_url = self.config.betfair.proxy_url.clone();
 
                 async move {
                     // Read and create identity inside the retry closure
@@ -62,19 +73,27 @@ impl BetfairApiClient {
                     headers.insert("X-Application", api_key.parse()?);
                     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse()?);
 
-                    let client = Client::builder().identity(identity).build()?;
+                    let mut client_builder = Client::builder().identity(identity);
+                    if let Some(proxy_url) = proxy_url {
+                        client_builder = client_builder.proxy(reqwest::Proxy::all(&proxy_url)?);
+                    }
+                    let client = client_builder.danger_accept_invalid_certs(true).build()?;
                     let form = [
                         ("username", username.as_str()),
                         ("password", password.as_str()),
                     ];
 
-                    let response: LoginResponse = client
+                    let mut http_response = client
                         .post(LOGIN_URL)
                         .headers(headers)
                         .header("X-Application", format!("app_{}", rand::random::<u128>()))
                         .form(&form)
-                        .send()?
-                        .json()?;
+                        .send()?;
+
+                    let response_text = http_response.text()?;
+                    tracing::info!("Login response: {}", response_text);
+
+                    let response: LoginResponse = serde_json::from_str(&response_text)?;
 
                     Ok(response)
                 }
@@ -720,6 +739,7 @@ mod tests {
                 api_key: "test_key".to_string(),
                 pfx_path: "/tmp/test.pfx".to_string(),
                 pfx_password: "test_pfx_pass".to_string(),
+                proxy_url: None,
             },
         }
     }

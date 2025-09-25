@@ -9,6 +9,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+/// Type alias for orderbook callback function
+type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
+
 /// A non-blocking streaming client for Betfair market data
 pub struct StreamingClient {
     api_key: String,
@@ -18,13 +21,13 @@ pub struct StreamingClient {
     orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>,
     is_connected: Arc<RwLock<bool>>,
     last_update_times: Arc<RwLock<HashMap<String, Instant>>>, // Track update times per market
-    custom_orderbook_callback:
-        Option<Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>>,
+    custom_orderbook_callback: Option<OrderbookCallback>,
 }
 
 #[derive(Debug)]
 enum StreamingCommand {
-    Subscribe(String, usize), // market_id, levels
+    Subscribe(String, usize),           // market_id, levels
+    SubscribeBatch(Vec<String>, usize), // market_ids, levels
     Unsubscribe(String),
     Stop,
 }
@@ -177,13 +180,12 @@ impl StreamingClient {
                                 "Processing subscription for market {} with {} levels",
                                 market_id, levels
                             );
-                            // Clear previous market data when subscribing to a new market
-                            // Betfair will automatically replace the previous subscription
+                            // Only clear data for this specific market, not all markets
                             if let Ok(mut obs) = orderbooks.write() {
-                                obs.clear();
+                                obs.remove(&market_id);
                             }
                             if let Ok(mut times) = last_update_times.write() {
-                                times.clear();
+                                times.remove(&market_id);
                             }
 
                             // Send subscription message directly through the message channel
@@ -195,6 +197,47 @@ impl StreamingClient {
                                 error!("Failed to send subscription: {}", e);
                             } else {
                                 info!("Successfully sent subscription for market {}", market_id);
+                            }
+                        }
+                        StreamingCommand::SubscribeBatch(market_ids, levels) => {
+                            info!(
+                                "Processing batch subscription for {} markets with {} levels",
+                                market_ids.len(),
+                                levels
+                            );
+
+                            // Clear data for all markets in the batch
+                            if let Ok(mut obs) = orderbooks.write() {
+                                for market_id in &market_ids {
+                                    obs.remove(market_id);
+                                }
+                            }
+                            if let Ok(mut times) = last_update_times.write() {
+                                for market_id in &market_ids {
+                                    times.remove(market_id);
+                                }
+                            }
+
+                            // Create subscription message with multiple market IDs
+                            let market_ids_json = market_ids
+                                .iter()
+                                .map(|id| format!("\"{}\"", id))
+                                .collect::<Vec<_>>()
+                                .join(",");
+
+                            let sub_msg = format!(
+                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[{}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n",
+                                market_ids_json
+                            );
+
+                            info!("Sending batch subscription: {}", sub_msg);
+                            if let Err(e) = message_sender.send(sub_msg).await {
+                                error!("Failed to send batch subscription: {}", e);
+                            } else {
+                                info!(
+                                    "Successfully sent batch subscription for {} markets",
+                                    market_ids.len()
+                                );
                             }
                         }
                         StreamingCommand::Unsubscribe(market_id) => {
@@ -260,6 +303,23 @@ impl StreamingClient {
         Ok(())
     }
 
+    /// Subscribe to multiple markets in a single subscription (recommended approach)
+    /// This sends all markets in one message to Betfair, avoiding subscription replacement
+    pub async fn subscribe_to_markets(&self, market_ids: Vec<String>, levels: usize) -> Result<()> {
+        if market_ids.is_empty() {
+            return Err(anyhow::anyhow!("Cannot subscribe to empty market list"));
+        }
+
+        if let Some(sender) = &self.command_sender {
+            sender
+                .send(StreamingCommand::SubscribeBatch(market_ids, levels))
+                .await?;
+        } else {
+            return Err(anyhow::anyhow!("Streaming client not started"));
+        }
+        Ok(())
+    }
+
     /// Unsubscribe from a market
     pub async fn unsubscribe_from_market(&self, market_id: String) -> Result<()> {
         if let Some(sender) = &self.command_sender {
@@ -317,6 +377,7 @@ mod tests {
                 api_key: "test_api_key".to_string(),
                 pfx_path: "/tmp/test.pfx".to_string(),
                 pfx_password: "test_pfx_pass".to_string(),
+                proxy_url: None,
             },
         }
     }

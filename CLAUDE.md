@@ -28,6 +28,13 @@ cargo fmt --check           # Check formatting without changes
 cargo run -- dashboard                                        # Launch interactive terminal dashboard
 # Or after building:
 ./target/debug/betfair dashboard                              # Run the built binary directly
+
+## Redis Tools (Separate Binary)
+# Build and run Redis market streamer (requires Redis server)
+cd tools/redis-streamer
+cargo run -- stream-venue 34750237                           # Stream specific venue game
+cargo run -- stream-all --limit 5                           # Stream all markets (limited)
+cargo run -- list-venues                                    # List available venue games
 ```
 
 ## Dashboard (Terminal UI)
@@ -138,6 +145,30 @@ openssl pkcs12 -export -out client.pfx -inkey client.key -in client.crt
 - Integration tests require valid Betfair credentials
 - Examples serve as integration tests and usage documentation
 - Use `cargo test --lib` to run tests without credentials
+
+## Tools and Extensions
+
+### Redis Market Streamer (`tools/redis-streamer/`)
+
+A separate binary tool that provides Redis integration without adding Redis as a library dependency:
+
+- **Purpose**: Stream Betfair markets from Redis-stored venue game data
+- **Architecture**: Independent binary with path dependency to betfair-rs
+- **Features**:
+  - Stream specific venue games from Redis keys
+  - Stream all available markets with optional limits
+  - List available venue games in Redis
+  - Real-time orderbook monitoring with statistics
+- **Usage**: See `tools/redis-streamer/README.md` for detailed instructions
+- **Benefits**: Complete separation of Redis functionality from core library
+
+### Design Philosophy
+
+The tools directory allows extending functionality without bloating the core library:
+- Tools have their own dependencies (e.g., Redis, additional CLI libraries)
+- Library users aren't affected by tool-specific dependencies
+- Tools can be distributed separately or included optionally
+- Maintains clean separation of concerns
 
 ## Dependencies Note
 

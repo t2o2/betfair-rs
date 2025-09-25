@@ -3,7 +3,10 @@
     "allow": [
       "Bash(cargo clippy:*)",
       "Bash(cargo fmt:*)",
-      "Bash(cargo tarpaulin:*)"
+      "Bash(cargo tarpaulin:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(RUST_LOG=debug cargo run -- stream-all --limit 5 --daemon --interval 10)"
     ],
     "deny": []
   }

@@ -128,7 +128,7 @@ impl BetfairStreamer {
                     Ok(0) => break, // EOF
                     Ok(_) => {
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
-                        debug!("Received message: {}", line);
+                        info!("Raw message: {}", line);
 
                         if let Err(e) = tx_read.send(line.clone()).await {
                             error!("Error sending message to main task: {}", e);
@@ -357,21 +357,31 @@ impl BetfairStreamer {
     }
 
     async fn handle_message(&mut self, message: String) -> Result<()> {
-        let message: Value = serde_json::from_str(&message)?;
-        if let Some(op) = message.get("op").and_then(Value::as_str) {
+        let parsed_message: Value = serde_json::from_str(&message)?;
+        if let Some(op) = parsed_message.get("op").and_then(Value::as_str) {
             match op {
                 "mcm" => {
                     if let Ok(market_change_message) =
                         serde_json::from_str::<MarketChangeMessage>(&message.to_string())
                     {
-                        debug!("Parsed MarketChangeMessage: {:?}", &market_change_message);
+                        info!(
+                            "MCM received: {} markets, {} changes",
+                            market_change_message.market_changes.len(),
+                            market_change_message
+                                .market_changes
+                                .iter()
+                                .map(|mc| mc.runner_changes.as_ref().map_or(0, |rc| rc.len()))
+                                .sum::<usize>()
+                        );
+                        debug!("MarketChangeMessage details: {:?}", &market_change_message);
                         self.parse_market_change_message(market_change_message);
                     } else if let Ok(heartbeat_message) =
                         serde_json::from_str::<HeartbeatMessage>(&message.to_string())
                     {
-                        debug!("Parsed HeartbeatMessage: {:?}", heartbeat_message);
+                        info!("Heartbeat received (id: {})", heartbeat_message.id);
+                        debug!("HeartbeatMessage details: {:?}", heartbeat_message);
                     } else {
-                        info!("Received unknown message: {}", message);
+                        info!("Unknown MCM message: {}", parsed_message);
                     }
                     if let Ok(mut ts) = self.last_message_ts.lock() {
                         *ts = Instant::now();
@@ -381,21 +391,70 @@ impl BetfairStreamer {
                     if let Ok(order_change_message) =
                         serde_json::from_str::<OrderChangeMessage>(&message.to_string())
                     {
-                        debug!("Parsed OrderChangeMessage: {:?}", &order_change_message);
+                        info!(
+                            "OCM received: {} order changes",
+                            order_change_message.order_changes.len()
+                        );
+                        debug!("OrderChangeMessage details: {:?}", &order_change_message);
                         self.parse_order_change_message(order_change_message);
                     } else if let Ok(heartbeat_message) =
                         serde_json::from_str::<HeartbeatMessage>(&message.to_string())
                     {
-                        debug!("Parsed HeartbeatMessage: {:?}", &heartbeat_message);
+                        info!("Heartbeat received (id: {})", heartbeat_message.id);
+                        debug!("HeartbeatMessage details: {:?}", &heartbeat_message);
                     } else {
-                        info!("Received unknown order message: {}", message);
+                        info!("Unknown OCM message: {}", parsed_message);
                     }
                     if let Ok(mut ts) = self.last_message_ts.lock() {
                         *ts = Instant::now();
                     }
                 }
-                _ => {}
+                "heartbeat" => {
+                    info!("Standalone heartbeat message received");
+                    if let Ok(mut ts) = self.last_message_ts.lock() {
+                        *ts = Instant::now();
+                    }
+                }
+                "status" => {
+                    // Parse status message for authentication response
+                    let status_code = parsed_message.get("statusCode").and_then(Value::as_str);
+                    let error_message = parsed_message.get("errorMessage").and_then(Value::as_str);
+                    let connection_id = parsed_message.get("connectionId").and_then(Value::as_str);
+
+                    match status_code {
+                        Some("SUCCESS") => {
+                            info!(
+                                "Authentication successful - Connection ID: {:?}",
+                                connection_id
+                            );
+                        }
+                        Some("FAILURE") => {
+                            error!("Authentication failed - Error: {:?}", error_message);
+                        }
+                        Some(code) => {
+                            warn!("Status message with code '{}': {}", code, parsed_message);
+                        }
+                        None => {
+                            info!("Status message (no code): {}", parsed_message);
+                        }
+                    }
+
+                    if let Ok(mut ts) = self.last_message_ts.lock() {
+                        *ts = Instant::now();
+                    }
+                }
+                "connection" => {
+                    info!("Connection message: {}", parsed_message);
+                    if let Ok(mut ts) = self.last_message_ts.lock() {
+                        *ts = Instant::now();
+                    }
+                }
+                other => {
+                    info!("Unknown message type '{}': {}", other, parsed_message);
+                }
             }
+        } else {
+            info!("Message without 'op' field: {}", parsed_message);
         }
 
         Ok(())
