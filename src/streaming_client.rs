@@ -18,7 +18,8 @@ pub struct StreamingClient {
     orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>,
     is_connected: Arc<RwLock<bool>>,
     last_update_times: Arc<RwLock<HashMap<String, Instant>>>, // Track update times per market
-    custom_orderbook_callback: Option<Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>>,
+    custom_orderbook_callback:
+        Option<Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>>,
 }
 
 #[derive(Debug)]

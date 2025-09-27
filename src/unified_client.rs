@@ -1,6 +1,6 @@
 use crate::api_client::BetfairApiClient;
 use crate::config::Config;
-use crate::dto::rpc::LoginResponse;
+use crate::dto::rpc::{InteractiveLoginResponse, LoginResponse};
 use crate::dto::*;
 use crate::orderbook::Orderbook;
 use crate::streaming_client::StreamingClient;
@@ -30,7 +30,7 @@ impl UnifiedBetfairClient {
         }
     }
 
-    /// Login to Betfair and obtain session token
+    /// Login to Betfair using certificate authentication and obtain session token
     pub async fn login(&mut self) -> Result<LoginResponse> {
         // Login via API client
         let response = self.api_client.login().await?;
@@ -40,6 +40,30 @@ impl UnifiedBetfairClient {
             let streaming = StreamingClient::with_session_token(
                 self.config.betfair.api_key.clone(),
                 response.session_token.clone(),
+            );
+            self.streaming_client = Some(streaming);
+        }
+
+        Ok(response)
+    }
+
+    /// Login to Betfair using interactive authentication and obtain session token
+    pub async fn login_interactive(
+        &mut self,
+        username: String,
+        password: String,
+    ) -> Result<InteractiveLoginResponse> {
+        // Login via API client
+        let response = self
+            .api_client
+            .login_interactive(username, password)
+            .await?;
+
+        // Extract session token and check if login was successful
+        if let Some(session_token) = self.api_client.get_session_token() {
+            let streaming = StreamingClient::with_session_token(
+                self.config.betfair.api_key.clone(),
+                session_token,
             );
             self.streaming_client = Some(streaming);
         }
