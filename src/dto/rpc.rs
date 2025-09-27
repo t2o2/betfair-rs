@@ -38,6 +38,23 @@ pub struct CertLoginResponse {
     pub login_status: String,
 }
 
+// Interactive login response format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractiveLoginResponse {
+    #[serde(rename = "sessionToken")]
+    pub session_token: Option<String>,
+    pub token: Option<String>,
+    #[serde(rename = "loginStatus")]
+    pub login_status: Option<String>,
+    pub status: Option<String>,
+    #[serde(rename = "statusCode")]
+    pub status_code: Option<String>,
+    pub error: Option<String>,
+    #[serde(rename = "errorDetails")]
+    pub error_details: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiError {

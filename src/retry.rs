@@ -23,6 +23,7 @@ impl Default for RetryConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct RetryPolicy {
     config: RetryConfig,
 }

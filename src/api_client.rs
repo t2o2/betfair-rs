@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::dto::rpc::LoginResponse;
+use crate::dto::rpc::{InteractiveLoginResponse, LoginResponse};
 use crate::dto::*;
 use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 const LOGIN_URL: &str = "https://identitysso-cert.betfair.com/api/certlogin";
+const INTERACTIVE_LOGIN_URL: &str = "https://identitysso.betfair.com/api/login";
 const BETTING_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
 const ACCOUNT_URL: &str = "https://api.betfair.com/exchange/account/json-rpc/v1";
 
@@ -34,7 +35,7 @@ impl BetfairApiClient {
         }
     }
 
-    /// Login to Betfair and obtain session token
+    /// Login to Betfair using certificate authentication and obtain session token
     pub async fn login(&mut self) -> Result<LoginResponse> {
         let api_key = self.config.betfair.api_key.clone();
         let username = self.config.betfair.username.clone();
@@ -85,6 +86,123 @@ impl BetfairApiClient {
         }
 
         Ok(response)
+    }
+
+    /// Login to Betfair using interactive (username/password) authentication
+    pub async fn login_interactive(
+        &mut self,
+        username: String,
+        password: String,
+    ) -> Result<InteractiveLoginResponse> {
+        let api_key = self.config.betfair.api_key.clone();
+        let client = self.client.clone();
+        let retry_policy = self.retry_policy.clone();
+
+        let response = retry_policy
+            .retry(|| {
+                let api_key = api_key.clone();
+                let username = username.clone();
+                let password = password.clone();
+                let client = client.clone();
+
+                async move {
+                    let mut headers = HeaderMap::new();
+                    headers.insert("X-Application", api_key.parse()?);
+                    headers.insert("Content-Type", "application/x-www-form-urlencoded".parse()?);
+                    headers.insert("Accept", "application/json".parse()?);
+
+                    let form = [
+                        ("username", username.as_str()),
+                        ("password", password.as_str()),
+                    ];
+
+                    let mut response = client
+                        .post(INTERACTIVE_LOGIN_URL)
+                        .headers(headers)
+                        .form(&form)
+                        .send()?;
+
+                    let status = response.status();
+                    let body = response.text()?;
+
+                    debug!("Interactive login response status: {}", status);
+                    debug!("Interactive login response body: {}", body);
+
+                    if !status.is_success() {
+                        return Err(anyhow::anyhow!(
+                            "Interactive login failed with status {}: {}",
+                            status,
+                            body.trim()
+                        ));
+                    }
+
+                    let login_response: InteractiveLoginResponse = serde_json::from_str(&body)?;
+
+                    Ok(login_response)
+                }
+            })
+            .await?;
+
+        // Extract the session token from various possible fields
+        let session_token = self.extract_session_token(&response)?;
+
+        // Check login status
+        let status = self.get_login_status(&response);
+        if !status.is_empty() && status.to_uppercase() != "SUCCESS" {
+            let error_msg = self.get_error_message(&response, &status);
+            return Err(anyhow::anyhow!(
+                "Interactive login {}: {}",
+                status,
+                error_msg
+            ));
+        }
+
+        if session_token.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Interactive login response did not include a session token"
+            ));
+        }
+
+        self.session_token = Some(session_token);
+        Ok(response)
+    }
+
+    fn extract_session_token(&self, response: &InteractiveLoginResponse) -> Result<String> {
+        // Try sessionToken first, then token
+        if let Some(token) = &response.session_token {
+            if !token.is_empty() {
+                return Ok(token.clone());
+            }
+        }
+
+        if let Some(token) = &response.token {
+            if !token.is_empty() {
+                return Ok(token.clone());
+            }
+        }
+
+        Ok(String::new())
+    }
+
+    fn get_login_status(&self, response: &InteractiveLoginResponse) -> String {
+        // Return the first non-empty status field
+        response
+            .login_status
+            .as_ref()
+            .or(response.status.as_ref())
+            .or(response.status_code.as_ref())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn get_error_message(&self, response: &InteractiveLoginResponse, status: &str) -> String {
+        // Return the first available error message
+        response
+            .error
+            .as_ref()
+            .or(response.error_details.as_ref())
+            .cloned()
+            .unwrap_or_else(|| format!("Login failed with status: {}", status))
     }
 
     /// Get current session token
@@ -640,6 +758,196 @@ mod tests {
         let client = BetfairApiClient::new(config);
 
         assert_eq!(client.config.betfair.api_key, "test_key");
+    }
+
+    #[test]
+    fn test_extract_session_token_from_session_token_field() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("test_session_token".to_string()),
+            token: None,
+            login_status: Some("SUCCESS".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: None,
+        };
+
+        let token = client.extract_session_token(&response).unwrap();
+        assert_eq!(token, "test_session_token");
+    }
+
+    #[test]
+    fn test_extract_session_token_from_token_field() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: None,
+            token: Some("test_token".to_string()),
+            login_status: Some("SUCCESS".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: None,
+        };
+
+        let token = client.extract_session_token(&response).unwrap();
+        assert_eq!(token, "test_token");
+    }
+
+    #[test]
+    fn test_extract_session_token_prefers_session_token_over_token() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("session_token_value".to_string()),
+            token: Some("token_value".to_string()),
+            login_status: Some("SUCCESS".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: None,
+        };
+
+        let token = client.extract_session_token(&response).unwrap();
+        assert_eq!(token, "session_token_value");
+    }
+
+    #[test]
+    fn test_extract_session_token_empty_when_no_tokens() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: None,
+            token: None,
+            login_status: Some("SUCCESS".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: None,
+        };
+
+        let token = client.extract_session_token(&response).unwrap();
+        assert_eq!(token, "");
+    }
+
+    #[test]
+    fn test_get_login_status_from_login_status_field() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: Some("SUCCESS".to_string()),
+            status: Some("OTHER".to_string()),
+            status_code: Some("CODE".to_string()),
+            error: None,
+            error_details: None,
+        };
+
+        let status = client.get_login_status(&response);
+        assert_eq!(status, "SUCCESS");
+    }
+
+    #[test]
+    fn test_get_login_status_falls_back_to_status() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: None,
+            status: Some("FAILED".to_string()),
+            status_code: Some("CODE".to_string()),
+            error: None,
+            error_details: None,
+        };
+
+        let status = client.get_login_status(&response);
+        assert_eq!(status, "FAILED");
+    }
+
+    #[test]
+    fn test_get_login_status_falls_back_to_status_code() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: None,
+            status: None,
+            status_code: Some("ERROR_CODE".to_string()),
+            error: None,
+            error_details: None,
+        };
+
+        let status = client.get_login_status(&response);
+        assert_eq!(status, "ERROR_CODE");
+    }
+
+    #[test]
+    fn test_get_error_message_from_error_field() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: Some("FAILED".to_string()),
+            status: None,
+            status_code: None,
+            error: Some("Authentication failed".to_string()),
+            error_details: Some("Detailed error".to_string()),
+        };
+
+        let error_msg = client.get_error_message(&response, "FAILED");
+        assert_eq!(error_msg, "Authentication failed");
+    }
+
+    #[test]
+    fn test_get_error_message_falls_back_to_error_details() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: Some("FAILED".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: Some("Detailed error message".to_string()),
+        };
+
+        let error_msg = client.get_error_message(&response, "FAILED");
+        assert_eq!(error_msg, "Detailed error message");
+    }
+
+    #[test]
+    fn test_get_error_message_default_when_no_error_fields() {
+        let config = create_test_config();
+        let client = BetfairApiClient::new(config);
+
+        let response = InteractiveLoginResponse {
+            session_token: Some("token".to_string()),
+            token: None,
+            login_status: Some("FAILED".to_string()),
+            status: None,
+            status_code: None,
+            error: None,
+            error_details: None,
+        };
+
+        let error_msg = client.get_error_message(&response, "FAILED");
+        assert_eq!(error_msg, "Login failed with status: FAILED");
     }
 
     #[test]
