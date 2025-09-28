@@ -2785,14 +2785,6 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing to a log file (won't interfere with TUI)
-    let file_appender = tracing_appender::rolling::daily(".", "dashboard.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    tracing_subscriber::fmt()
-        .with_writer(non_blocking)
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
-
     info!("Dashboard starting up with enhanced streaming diagnostics");
 
     // Setup terminal
