@@ -63,13 +63,13 @@ The library includes an interactive terminal dashboard for real-time trading:
 ### Core Components
 
 **Unified Client Architecture:**
-1. **UnifiedBetfairClient** (`src/unified_client.rs`) - Main client combining REST and streaming
-   - Combines BetfairApiClient for REST operations
+1. **BetfairClient** (`src/unified_client.rs`) - Main client combining REST and streaming
+   - Combines RestClient for REST operations
    - Integrates StreamingClient for real-time market data
    - Single login for both REST and streaming
    - Shared session token management
 
-2. **BetfairApiClient** (`src/api_client.rs`) - REST API client
+2. **RestClient** (`src/api_client.rs`) - REST API client
    - Uses JSON-RPC for all API calls
    - Built-in rate limiting per endpoint type (navigation/data/transaction)
    - Retry policy with exponential backoff

@@ -1,4 +1,4 @@
-use crate::api_client::BetfairApiClient;
+use crate::api_client::RestClient;
 use crate::config::Config;
 use crate::dto::rpc::{InteractiveLoginResponse, LoginResponse};
 use crate::dto::*;
@@ -13,16 +13,16 @@ use std::time::Instant;
 pub type SharedOrderbooks = Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>;
 
 /// Unified client combining REST API and streaming capabilities
-pub struct UnifiedBetfairClient {
-    api_client: BetfairApiClient,
+pub struct BetfairClient {
+    api_client: RestClient,
     streaming_client: Option<StreamingClient>,
     config: Config,
 }
 
-impl UnifiedBetfairClient {
+impl BetfairClient {
     /// Create a new unified client
     pub fn new(config: Config) -> Self {
-        let api_client = BetfairApiClient::new(config.clone());
+        let api_client = RestClient::new(config.clone());
         Self {
             api_client,
             streaming_client: None,
@@ -92,7 +92,7 @@ impl UnifiedBetfairClient {
         }
     }
 
-    // ========== REST API Methods (delegated to BetfairApiClient) ==========
+    // ========== REST API Methods (delegated to RestClient) ==========
 
     /// List sports (event types)
     pub async fn list_sports(&self, filter: Option<MarketFilter>) -> Result<Vec<EventTypeResult>> {
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn test_unified_client_creation() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         assert!(client.get_session_token().is_none());
         assert!(!client.is_streaming_connected());
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn test_get_and_set_session_token() {
         let config = create_test_config();
-        let mut client = UnifiedBetfairClient::new(config);
+        let mut client = BetfairClient::new(config);
 
         assert!(client.get_session_token().is_none());
 
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn test_get_streaming_orderbooks() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         let ob1 = client.get_streaming_orderbooks();
         let ob2 = client.get_streaming_orderbooks();
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn test_get_streaming_orderbooks_empty() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         let orderbooks = client.get_streaming_orderbooks();
         assert!(orderbooks.is_none());
@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn test_market_last_update_time_not_available() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         let time = client.get_market_last_update_time("1.123456");
         assert!(time.is_none());
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_streaming_not_connected_initially() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         assert!(!client.is_streaming_connected());
     }
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn test_unified_client_streaming_orderbooks_initialization() {
         let config = create_test_config();
-        let client = UnifiedBetfairClient::new(config);
+        let client = BetfairClient::new(config);
 
         let orderbooks = client.get_streaming_orderbooks();
         assert!(orderbooks.is_none());

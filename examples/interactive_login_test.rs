@@ -1,5 +1,5 @@
 use anyhow::Result;
-use betfair_rs::{config::Config, UnifiedBetfairClient};
+use betfair_rs::{config::Config, BetfairClient};
 use std::env;
 use tracing::info;
 
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     };
 
     // Initialize unified client
-    let mut client = UnifiedBetfairClient::new(config);
+    let mut client = BetfairClient::new(config);
 
     info!("Attempting interactive login...");
 

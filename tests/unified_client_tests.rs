@@ -3,7 +3,7 @@ use betfair_rs::dto::{
     LimitOrder, MarketFilter, OrderType, PersistenceType, PlaceInstruction, PlaceOrdersRequest,
     Side,
 };
-use betfair_rs::unified_client::UnifiedBetfairClient;
+use betfair_rs::unified_client::BetfairClient;
 
 fn create_test_config() -> Config {
     Config {
@@ -19,7 +19,7 @@ fn create_test_config() -> Config {
 #[test]
 fn test_unified_client_creation() {
     let config = create_test_config();
-    let client = UnifiedBetfairClient::new(config);
+    let client = BetfairClient::new(config);
 
     assert!(client.get_session_token().is_none());
     assert!(client.get_streaming_orderbooks().is_none());
@@ -29,7 +29,7 @@ fn test_unified_client_creation() {
 #[test]
 fn test_get_and_set_session_token() {
     let config = create_test_config();
-    let mut client = UnifiedBetfairClient::new(config);
+    let mut client = BetfairClient::new(config);
 
     assert!(client.get_session_token().is_none());
 
@@ -40,7 +40,7 @@ fn test_get_and_set_session_token() {
 #[test]
 fn test_streaming_not_connected_initially() {
     let config = create_test_config();
-    let client = UnifiedBetfairClient::new(config);
+    let client = BetfairClient::new(config);
 
     assert!(!client.is_streaming_connected());
     assert!(client.get_streaming_orderbooks().is_none());
@@ -50,7 +50,7 @@ fn test_streaming_not_connected_initially() {
 #[tokio::test]
 async fn test_market_filter_methods() {
     let config = create_test_config();
-    let mut client = UnifiedBetfairClient::new(config);
+    let mut client = BetfairClient::new(config);
     client.set_session_token("test_token".to_string());
 
     let filter = MarketFilter {
@@ -103,7 +103,7 @@ fn test_place_order_request_creation() {
 #[test]
 fn test_unified_client_shared_orderbooks_initialization() {
     let config = create_test_config();
-    let client = UnifiedBetfairClient::new(config);
+    let client = BetfairClient::new(config);
 
     let orderbooks = client.get_streaming_orderbooks();
     assert!(orderbooks.is_none());
@@ -112,7 +112,7 @@ fn test_unified_client_shared_orderbooks_initialization() {
 #[test]
 fn test_market_last_update_time_not_available() {
     let config = create_test_config();
-    let client = UnifiedBetfairClient::new(config);
+    let client = BetfairClient::new(config);
 
     let update_time = client.get_market_last_update_time("1.123456");
     assert!(update_time.is_none());

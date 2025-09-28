@@ -1,6 +1,6 @@
 use anyhow::Result;
 use betfair_rs::orderbook::{Orderbook, PriceLevel};
-use betfair_rs::{BetfairApiClient, Config, StreamingClient};
+use betfair_rs::{BetfairClient, Config, StreamingClient};
 use betfair_rs::dto::market::{ListMarketCatalogueRequest, MarketFilter};
 use betfair_rs::dto::common::MarketProjection;
 use clap::{Parser, Subcommand};
@@ -114,6 +114,7 @@ enum Commands {
 
 #[derive(Debug, Clone)]
 struct UpdateStats {
+    #[allow(dead_code)]
     first_update: Instant,
     last_update: Instant,
     update_count: u64,
@@ -155,6 +156,7 @@ impl MessageStats {
         self.total_messages += 1;
     }
 
+    #[allow(dead_code)]
     fn record_heartbeat(&mut self) {
         self.last_heartbeat = Some(Instant::now());
         self.total_messages += 1;
@@ -564,7 +566,7 @@ async fn stream_markets_continuous(market_ids: Vec<String>, depth: usize, interv
         // Check if we need to refresh Redis data
         if refresh_minutes > 0 && last_refresh.elapsed() >= refresh_interval {
             info!("🔄 Refreshing Redis data...");
-            if let Ok(mut redis_extractor) = RedisMarketExtractor::new(redis_url) {
+            if let Ok(_redis_extractor) = RedisMarketExtractor::new(redis_url) {
                 // You could refresh market list here if needed
                 // For now, just log that we're still monitoring
                 info!("✅ Redis connection verified");
@@ -586,7 +588,7 @@ async fn stream_markets_continuous(market_ids: Vec<String>, depth: usize, interv
     Ok(())
 }
 
-async fn filter_active_markets(client: &BetfairApiClient, market_ids: Vec<String>) -> Result<Vec<String>> {
+async fn filter_active_markets(client: &BetfairClient, market_ids: Vec<String>) -> Result<Vec<String>> {
     info!("🔍 Checking market start times for {} markets", market_ids.len());
 
     let request = ListMarketCatalogueRequest {
@@ -660,7 +662,7 @@ async fn try_initialize_betfair_streaming(
 ) -> Result<StreamingClient> {
     // Try to load config - if it fails, we'll run in Redis-only mode
     let config = Config::new()?;
-    let mut api_client = BetfairApiClient::new(config.clone());
+    let mut api_client = BetfairClient::new(config.clone());
 
     info!("Attempting to login to Betfair...");
     api_client.login().await?;
@@ -684,7 +686,7 @@ async fn try_initialize_betfair_streaming(
     let stats_for_callback = Arc::clone(update_stats);
     let msg_stats_for_callback = Arc::clone(message_stats);
     info!("🔧 Setting up orderbook callback for market updates");
-    streaming_client.set_orderbook_callback(move |market_id, orderbooks| {
+    streaming_client.set_orderbook_callback(move |market_id, _orderbooks| {
         let now = Instant::now();
 
         if let Ok(mut stats) = stats_for_callback.lock() {
@@ -810,7 +812,7 @@ async fn stream_markets(market_ids: Vec<String>, depth: usize, interval: u64) ->
 
     // Initialize Betfair client
     let config = Config::new()?;
-    let mut api_client = BetfairApiClient::new(config.clone());
+    let mut api_client = BetfairClient::new(config.clone());
 
     info!("Logging in to Betfair...");
     api_client.login().await?;
@@ -834,7 +836,7 @@ async fn stream_markets(market_ids: Vec<String>, depth: usize, interval: u64) ->
     let stats_for_callback = Arc::clone(&update_stats);
     let msg_stats_for_callback = Arc::clone(&message_stats);
     info!("🔧 Setting up orderbook callback for market updates");
-    streaming_client.set_orderbook_callback(move |market_id, orderbooks| {
+    streaming_client.set_orderbook_callback(move |market_id, _orderbooks| {
         let now = Instant::now();
 
         if let Ok(mut stats) = stats_for_callback.lock() {
@@ -952,7 +954,7 @@ async fn stream_markets_raw(market_ids: Vec<String>, depth: usize, interval: u64
 
     // Initialize Betfair client
     let config = Config::new()?;
-    let mut api_client = BetfairApiClient::new(config.clone());
+    let mut api_client = BetfairClient::new(config.clone());
 
     info!("Logging in to Betfair...");
     api_client.login().await?;

@@ -7,7 +7,7 @@
 //! ## Quick Start
 //!
 //! ```no_run
-//! use betfair_rs::{BetfairApiClient, Config};
+//! use betfair_rs::{BetfairClient, Config};
 //! use betfair_rs::dto::market::{MarketFilter, ListMarketCatalogueRequest};
 //!
 //! # async fn example() -> anyhow::Result<()> {
@@ -15,7 +15,7 @@
 //! let config = Config::new()?;
 //!
 //! // Create API client and login
-//! let mut client = BetfairApiClient::new(config);
+//! let mut client = BetfairClient::new(config);
 //! client.login().await?;
 //!
 //! // List available sports (event types)
@@ -62,12 +62,12 @@
 //! ## Example: Streaming Market Data
 //!
 //! ```no_run
-//! use betfair_rs::{BetfairApiClient, StreamingClient, Config};
+//! use betfair_rs::{BetfairClient, StreamingClient, Config};
 //! use std::time::Duration;
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let config = Config::new()?;
-//! let mut api_client = BetfairApiClient::new(config.clone());
+//! let mut api_client = BetfairClient::new(config.clone());
 //! api_client.login().await?;
 //!
 //! let session_token = api_client.get_session_token()
@@ -112,7 +112,11 @@ pub(crate) fn ensure_crypto_provider() {
     });
 }
 
-pub use api_client::BetfairApiClient;
+pub use api_client::RestClient;
 pub use config::Config;
 pub use streaming_client::StreamingClient;
-pub use unified_client::UnifiedBetfairClient;
+pub use unified_client::BetfairClient;
+
+// Type aliases for backward compatibility and ease of use
+pub type BetfairApiClient = RestClient;
+pub type UnifiedBetfairClient = BetfairClient;

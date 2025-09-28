@@ -22,8 +22,8 @@ fn load_pem_identity(pem_path: &str) -> Result<reqwest::Identity> {
         .map_err(|e| anyhow::anyhow!("Failed to parse PEM identity: {}", e))
 }
 
-/// Unified API client for all Betfair operations
-pub struct BetfairApiClient {
+/// REST API client for all Betfair operations
+pub struct RestClient {
     client: Client,
     config: Arc<Config>,
     session_token: Option<String>,
@@ -31,7 +31,7 @@ pub struct BetfairApiClient {
     rate_limiter: BetfairRateLimiter,
 }
 
-impl BetfairApiClient {
+impl RestClient {
     /// Create a new API client
     pub fn new(config: Config) -> Self {
         let client = Client::new();
@@ -623,11 +623,12 @@ impl BetfairApiClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
+    /// # use betfair_rs::{RestClient, Config};
+    /// # use betfair_rs::dto::MarketFilter;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let config = Config::new()?;
-    /// # let client = BetfairApiClient::new(config);
+    /// # let client = RestClient::new(config);
     /// // Get all events for Soccer
     /// let filter = MarketFilter {
     ///     event_type_ids: Some(vec!["1".to_string()]),
@@ -660,11 +661,12 @@ impl BetfairApiClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use betfair_rs::{BetfairApiClient, MarketFilter, Config};
+    /// # use betfair_rs::{RestClient, Config};
+    /// # use betfair_rs::dto::MarketFilter;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let config = Config::new()?;
-    /// # let client = BetfairApiClient::new(config);
+    /// # let client = RestClient::new(config);
     /// // Get all competitions for Tennis in USA
     /// let filter = MarketFilter {
     ///     event_type_ids: Some(vec!["2".to_string()]),
@@ -739,7 +741,7 @@ mod tests {
     #[test]
     fn test_api_client_creation() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         assert!(client.session_token.is_none());
         assert!(client.get_session_token().is_none());
@@ -748,7 +750,7 @@ mod tests {
     #[test]
     fn test_set_and_get_session_token() {
         let config = create_test_config();
-        let mut client = BetfairApiClient::new(config);
+        let mut client = RestClient::new(config);
 
         let token = "test_session_token".to_string();
         client.set_session_token(token.clone());
@@ -759,7 +761,7 @@ mod tests {
     #[test]
     fn test_client_has_session_token_field() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         assert!(client.session_token.is_none());
     }
@@ -767,7 +769,7 @@ mod tests {
     #[test]
     fn test_client_has_api_key_in_config() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         assert_eq!(client.config.betfair.api_key, "test_key");
     }
@@ -775,7 +777,7 @@ mod tests {
     #[test]
     fn test_extract_session_token_from_session_token_field() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("test_session_token".to_string()),
@@ -794,7 +796,7 @@ mod tests {
     #[test]
     fn test_extract_session_token_from_token_field() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: None,
@@ -813,7 +815,7 @@ mod tests {
     #[test]
     fn test_extract_session_token_prefers_session_token_over_token() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("session_token_value".to_string()),
@@ -832,7 +834,7 @@ mod tests {
     #[test]
     fn test_extract_session_token_empty_when_no_tokens() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: None,
@@ -851,7 +853,7 @@ mod tests {
     #[test]
     fn test_get_login_status_from_login_status_field() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),
@@ -870,7 +872,7 @@ mod tests {
     #[test]
     fn test_get_login_status_falls_back_to_status() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),
@@ -889,7 +891,7 @@ mod tests {
     #[test]
     fn test_get_login_status_falls_back_to_status_code() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),
@@ -908,7 +910,7 @@ mod tests {
     #[test]
     fn test_get_error_message_from_error_field() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),
@@ -927,7 +929,7 @@ mod tests {
     #[test]
     fn test_get_error_message_falls_back_to_error_details() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),
@@ -946,7 +948,7 @@ mod tests {
     #[test]
     fn test_get_error_message_default_when_no_error_fields() {
         let config = create_test_config();
-        let client = BetfairApiClient::new(config);
+        let client = RestClient::new(config);
 
         let response = InteractiveLoginResponse {
             session_token: Some("token".to_string()),

@@ -11,7 +11,7 @@ use betfair_rs::{
         ListMarketCatalogueRequest, MarketFilter,
     },
     orderbook::Orderbook,
-    UnifiedBetfairClient,
+    BetfairClient,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -35,8 +35,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{debug, error, info, warn};
-use tracing_appender;
-use tracing_subscriber;
 
 #[derive(Debug, Clone)]
 enum AppMode {
@@ -195,7 +193,7 @@ struct App {
     diagnostics_subscribed_market: Option<String>,
 
     // Unified client
-    client: Option<UnifiedBetfairClient>,
+    client: Option<BetfairClient>,
 }
 
 impl App {
@@ -261,7 +259,7 @@ impl App {
         let config = Config::new()?;
 
         // Initialize unified client
-        let mut client = UnifiedBetfairClient::new(config);
+        let mut client = BetfairClient::new(config);
         self.status_message = "Logging in to Betfair API...".to_string();
 
         let login_response = client.login().await?;
@@ -2090,8 +2088,7 @@ fn render_diagnostics_panel(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let subscribed_market = app.diagnostics_subscribed_market
-        .as_ref()
-        .map(|m| m.as_str())
+        .as_deref()
         .unwrap_or("None");
 
     let last_callback = app.diagnostics_last_callback

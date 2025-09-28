@@ -52,7 +52,7 @@ mod dashboard {
 mod streaming {
     use anyhow::Result;
     use betfair_rs::orderbook::{Orderbook, PriceLevel};
-    use betfair_rs::{BetfairApiClient, Config, StreamingClient};
+    use betfair_rs::{BetfairClient, Config, StreamingClient};
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -66,7 +66,7 @@ mod streaming {
         tracing_subscriber::fmt::init();
 
         let config = Config::new()?;
-        let mut api_client = BetfairApiClient::new(config.clone());
+        let mut api_client = BetfairClient::new(config.clone());
 
         info!("Logging in to Betfair...");
         api_client.login().await?;
