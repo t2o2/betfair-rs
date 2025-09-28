@@ -24,6 +24,7 @@ async fn main() -> Result<()> {
             api_key,
             pfx_path: String::new(),     // Not used for interactive login
             pfx_password: String::new(), // Not used for interactive login
+            proxy_url: None,
         },
     };
 
@@ -48,10 +49,7 @@ async fn main() -> Result<()> {
     let sports = client.list_sports(None).await?;
     info!("Found {} sports", sports.len());
     for sport in sports.iter().take(5) {
-        info!(
-            "Sport: {} ({})",
-            sport.event_type.name, sport.event_type.id
-        );
+        info!("Sport: {} ({})", sport.event_type.name, sport.event_type.id);
     }
 
     Ok(())

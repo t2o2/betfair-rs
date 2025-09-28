@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     info!("Starting streaming client...");
     streaming_client.start().await?;
 
-    let market_id = "1.244922596";
+    let market_id = "1.247749142";
     let orderbook_depth = 10;
 
     info!(

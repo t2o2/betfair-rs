@@ -221,7 +221,7 @@ impl BetfairApiClient {
             .as_ref()
             .or(response.error_details.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("Login failed with status: {}", status))
+            .unwrap_or_else(|| format!("Login failed with status: {status}"))
     }
 
     /// Get current session token

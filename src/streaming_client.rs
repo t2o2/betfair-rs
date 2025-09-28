@@ -221,13 +221,12 @@ impl StreamingClient {
                             // Create subscription message with multiple market IDs
                             let market_ids_json = market_ids
                                 .iter()
-                                .map(|id| format!("\"{}\"", id))
+                                .map(|id| format!("\"{id}\""))
                                 .collect::<Vec<_>>()
                                 .join(",");
 
                             let sub_msg = format!(
-                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[{}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n",
-                                market_ids_json
+                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[{market_ids_json}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
                             );
 
                             info!("Sending batch subscription: {}", sub_msg);
