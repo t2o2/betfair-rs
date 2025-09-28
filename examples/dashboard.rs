@@ -24,7 +24,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem, Paragraph, Row, Table, TableState,
+        Block, BorderType, Borders, Cell, List, ListItem, Paragraph, Row, Table, TableState, Wrap,
     },
     Frame, Terminal,
 };
@@ -34,7 +34,9 @@ use std::{
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
-use tracing::info;
+use tracing::{debug, error, info, warn};
+use tracing_appender;
+use tracing_subscriber;
 
 #[derive(Debug, Clone)]
 enum AppMode {
@@ -59,6 +61,7 @@ enum Panel {
     OrderBook,
     ActiveOrders,
     OrderEntry,
+    Diagnostics,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +186,14 @@ struct App {
     status_message: String,
     error_message: Option<String>,
 
+    // Diagnostics state
+    show_diagnostics: bool,
+    diagnostics_update_count: u64,
+    diagnostics_last_callback: Option<Instant>,
+    diagnostics_total_markets: usize,
+    diagnostics_total_runners: usize,
+    diagnostics_subscribed_market: Option<String>,
+
     // Unified client
     client: Option<UnifiedBetfairClient>,
 }
@@ -233,6 +244,13 @@ impl App {
 
             status_message: "Initializing...".to_string(),
             error_message: None,
+
+            show_diagnostics: false,
+            diagnostics_update_count: 0,
+            diagnostics_last_callback: None,
+            diagnostics_total_markets: 0,
+            diagnostics_total_runners: 0,
+            diagnostics_subscribed_market: None,
 
             client: None,
         }
@@ -429,21 +447,30 @@ impl App {
 
         // Try to use streaming if available
         if self.streaming_connected {
+            info!("Attempting to use streaming for market {market_id}");
+
             // Check if we need to subscribe to a different market
             let needs_subscription = if let Some(prev_market) = &self.current_streaming_market {
-                prev_market != market_id
+                let different = prev_market != market_id;
+                info!("Previous market: {prev_market}, Current market: {market_id}, Needs subscription: {different}");
+                different
             } else {
+                info!("No previous streaming market, subscribing to {market_id}");
                 true
             };
 
             // Subscribe to the market if needed
             if needs_subscription {
                 if let Some(client) = &self.client {
+                    info!("Subscribing to market {market_id} via streaming client");
                     if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
-                        self.error_message =
-                            Some(format!("Failed to subscribe to market stream: {e}"));
+                        error!("Failed to subscribe to market stream for {market_id}: {e}");
+                        let error_msg = format!("Failed to subscribe to market stream: {e}");
+                        let help_msg = self.get_streaming_error_help(&error_msg);
+                        self.error_message = Some(format!("{error_msg} {help_msg}"));
                         self.streaming_connected = false;
                     } else {
+                        info!("Successfully subscribed to market {market_id}, waiting for data...");
                         self.current_streaming_market = Some(market_id.to_string());
                         self.status_message = format!("Streaming market {market_id}");
 
@@ -453,17 +480,27 @@ impl App {
                 }
             } else {
                 // Already subscribed to this market, just wait a bit for fresh data
+                info!("Already subscribed to market {market_id}, waiting for fresh data");
                 self.status_message = format!("Refreshing market {market_id}");
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
 
             // Read from streaming orderbooks - retry a few times if no data yet
+            info!("Attempting to read streaming data for market {market_id}");
             let mut retries = 0;
             while retries < 3 {
                 // Process orderbooks in a separate scope to ensure lock is dropped
                 let found_data = {
                     let orderbooks = self.streaming_orderbooks.read().unwrap();
+                    info!(
+                        "Checking streaming orderbooks: {} markets available",
+                        orderbooks.len()
+                    );
                     if let Some(market_orderbooks) = orderbooks.get(market_id) {
+                        info!(
+                            "Found market {market_id} in streaming data with {} runners",
+                            market_orderbooks.len()
+                        );
                         if !market_orderbooks.is_empty() {
                             let mut runner_books = vec![];
 
@@ -520,17 +557,26 @@ impl App {
 
                             true
                         } else {
+                            info!("Market {market_id} found but has empty runner data");
                             false
                         }
                     } else {
+                        info!("Market {market_id} not found in streaming orderbooks");
                         false
                     }
                 }; // Lock is dropped here
 
                 if found_data {
+                    info!("Successfully loaded streaming data for market {market_id}");
+                    self.status_message = format!("🔴 LIVE streaming data for market {market_id}");
                     return Ok(());
                 }
 
+                warn!(
+                    "Retry {}/{} - No streaming data found for market {market_id}",
+                    retries + 1,
+                    3
+                );
                 if retries < 2 {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
@@ -538,11 +584,14 @@ impl App {
             }
 
             // If we still don't have streaming data after retries, fall back to polling
-            self.status_message =
-                format!("No streaming data for market {market_id}, using polling");
+            warn!("Failed to get streaming data for market {market_id} after {} retries, falling back to polling", retries);
+            self.status_message = format!(
+                "⚠️ Streaming unavailable for {market_id} - using REST API (updates every 30s)"
+            );
         }
 
         // Fall back to polling if streaming not available or failed
+        info!("Using REST API polling for market {market_id}");
         if let Some(client) = &mut self.client {
             let market_books = client.get_odds(market_id.to_string()).await?;
 
@@ -614,9 +663,93 @@ impl App {
                     {
                         self.selected_runner = Some(0);
                     }
+
+                    // Update status to show polling mode
+                    self.status_message = format!(
+                        "📊 REST API data for market {market_id} (last updated: {})",
+                        chrono::Local::now().format("%H:%M:%S")
+                    );
                 }
             }
         }
+        Ok(())
+    }
+
+    async fn perform_manual_refresh(&mut self) -> Result<()> {
+        info!("Performing manual refresh");
+
+        // Refresh account info and active orders
+        self.load_account_info().await?;
+        self.load_active_orders().await?;
+
+        // Force reload current orderbook data
+        if let Some(market) = self.selected_market {
+            let market_id = self.markets.get(market).map(|m| m.id.clone());
+            if let Some(market_id) = market_id {
+                // Force refresh by bypassing streaming data temporarily
+                let was_streaming = self.streaming_connected;
+
+                if was_streaming {
+                    info!("Force refreshing orderbook for market {market_id} via REST API");
+                    // Temporarily mark as not streaming to force REST API call
+                    self.streaming_connected = false;
+                }
+
+                self.load_orderbook(&market_id).await?;
+
+                // Restore streaming status
+                if was_streaming {
+                    self.streaming_connected = true;
+                    self.status_message = format!("🔄 Manual refresh complete for {market_id} at {}",
+                                                chrono::Local::now().format("%H:%M:%S"));
+                } else {
+                    self.status_message = "🔄 Manual refresh complete".to_string();
+                }
+            } else {
+                self.status_message = "🔄 Account and orders refreshed".to_string();
+            }
+        } else {
+            self.status_message = "🔄 Account and orders refreshed".to_string();
+        }
+
+        Ok(())
+    }
+
+    async fn perform_force_refresh(&mut self) -> Result<()> {
+        info!("Performing force refresh (bypassing all caches)");
+
+        // Force refresh account info and active orders
+        self.load_account_info().await?;
+        self.load_active_orders().await?;
+
+        // Force reload current orderbook data by temporarily disabling streaming
+        if let Some(market) = self.selected_market {
+            let market_id = self.markets.get(market).map(|m| m.id.clone());
+            if let Some(market_id) = market_id {
+                let was_streaming = self.streaming_connected;
+
+                info!("Force refreshing orderbook for market {market_id} - bypassing streaming cache");
+
+                // Temporarily disable streaming to force REST API call
+                self.streaming_connected = false;
+
+                // Clear any existing orderbook to force fresh load
+                self.current_orderbook = None;
+
+                self.load_orderbook(&market_id).await?;
+
+                // Restore streaming status
+                self.streaming_connected = was_streaming;
+
+                self.status_message = format!("⚡ Force refresh complete for {market_id} at {}",
+                                            chrono::Local::now().format("%H:%M:%S"));
+            } else {
+                self.status_message = "⚡ Force refresh complete (account and orders)".to_string();
+            }
+        } else {
+            self.status_message = "⚡ Force refresh complete (account and orders)".to_string();
+        }
+
         Ok(())
     }
 
@@ -899,6 +1032,7 @@ impl App {
             Panel::OrderBook => Panel::ActiveOrders,
             Panel::ActiveOrders => Panel::OrderEntry,
             Panel::OrderEntry => Panel::MarketBrowser,
+            Panel::Diagnostics => Panel::MarketBrowser, // Skip diagnostics in navigation
         };
     }
 
@@ -908,6 +1042,7 @@ impl App {
             Panel::OrderBook => Panel::MarketBrowser,
             Panel::ActiveOrders => Panel::OrderBook,
             Panel::OrderEntry => Panel::ActiveOrders,
+            Panel::Diagnostics => Panel::OrderEntry, // Skip diagnostics in navigation
         };
     }
 
@@ -957,85 +1092,217 @@ impl App {
 
     fn update_orderbook_from_streaming(&mut self) {
         // Update current orderbook display from streaming data if available
-        if self.streaming_connected {
-            if let Some(market_id) = &self.current_streaming_market {
-                // Check for market-level update time
-                if let Some(client) = &self.client {
-                    if let Some(market_update_time) = client.get_market_last_update_time(market_id)
-                    {
-                        self.last_streaming_update = Some(market_update_time);
-                    }
-                }
-
-                let orderbooks = self.streaming_orderbooks.read().unwrap();
-                if let Some(market_orderbooks) = orderbooks.get(market_id) {
-                    // Update status to show we're receiving streaming data
-                    self.status_message =
-                        format!("Streaming {} runners active", market_orderbooks.len());
-                    if let Some(current_ob) = &mut self.current_orderbook {
-                        // Only update if we have the same market
-                        if current_ob.market_id == *market_id {
-                            let mut data_updated = false;
-                            // Update existing runners with streaming data
-                            for runner in &mut current_ob.runners {
-                                let runner_id_str = runner.runner_id.to_string();
-                                if let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) {
-                                    // Check if data actually changed
-                                    let new_bids: Vec<(f64, f64)> = streaming_ob
-                                        .bids
-                                        .iter()
-                                        .take(10)
-                                        .map(|level| (level.price, level.size))
-                                        .collect();
-                                    let new_asks: Vec<(f64, f64)> = streaming_ob
-                                        .asks
-                                        .iter()
-                                        .take(10)
-                                        .map(|level| (level.price, level.size))
-                                        .collect();
-
-                                    if new_bids != runner.bids || new_asks != runner.asks {
-                                        data_updated = true;
-                                        // Track previous best prices for change detection
-                                        runner.prev_best_bid = runner.bids.first().map(|(p, _)| *p);
-                                        runner.prev_best_ask = runner.asks.first().map(|(p, _)| *p);
-                                        runner.bids = new_bids;
-                                        runner.asks = new_asks;
-                                        runner.last_update = Some(Instant::now());
-                                    }
-                                    runner.is_streaming = true;
-                                }
-                            }
-
-                            if data_updated {
-                                self.last_streaming_update = Some(Instant::now());
-                            }
-                        }
-                    }
-                } else {
-                    // No streaming data available
-                    if let Some(market_id) = &self.current_streaming_market {
-                        self.status_message =
-                            format!("Waiting for streaming data for market {market_id}");
-                    }
-                }
-            }
-        } else {
-            // Streaming not connected
+        if !self.streaming_connected {
             if self.current_orderbook.is_some() {
                 self.status_message = "Streaming not connected - showing static data".to_string();
             }
+            return;
+        }
+
+        let Some(market_id) = &self.current_streaming_market else {
+            debug!("No current streaming market set - skipping update");
+            return;
+        };
+
+        debug!("Updating orderbook from streaming for market {market_id}");
+
+        // Check for market-level update time
+        if let Some(client) = &self.client {
+            if let Some(market_update_time) = client.get_market_last_update_time(market_id) {
+                self.last_streaming_update = Some(market_update_time);
+                debug!("Updated last streaming time from client for market {market_id}");
+            }
+        }
+
+        // Acquire read lock on streaming orderbooks
+        let orderbooks = match self.streaming_orderbooks.read() {
+            Ok(books) => books,
+            Err(e) => {
+                error!("Failed to acquire read lock on streaming orderbooks: {e}");
+                return;
+            }
+        };
+
+        debug!("Streaming orderbooks contains {} markets", orderbooks.len());
+
+        // Update diagnostics data
+        self.diagnostics_total_markets = orderbooks.len();
+        self.diagnostics_total_runners = orderbooks.values().map(|m| m.len()).sum();
+        self.diagnostics_subscribed_market = self.current_streaming_market.clone();
+        self.diagnostics_last_callback = Some(Instant::now());
+
+        for (mk, runners) in orderbooks.iter() {
+            debug!("  Market {mk}: {} runners", runners.len());
+        }
+
+        let Some(market_orderbooks) = orderbooks.get(market_id) else {
+            warn!("No streaming data found for market {market_id} in shared state");
+            self.status_message = format!("Waiting for streaming data for market {market_id}");
+            return;
+        };
+
+        info!("Found streaming data for market {market_id} with {} runners", market_orderbooks.len());
+
+        // Update status to show we're receiving streaming data
+        self.status_message = format!("🔴 LIVE {} runners streaming", market_orderbooks.len());
+
+        let Some(current_ob) = &mut self.current_orderbook else {
+            warn!("No current orderbook exists to update");
+            return;
+        };
+
+        // Only update if we have the same market
+        if current_ob.market_id != *market_id {
+            warn!("Current orderbook market ID {} doesn't match streaming market {market_id}", current_ob.market_id);
+            return;
+        }
+
+        debug!("Updating {} runners in current orderbook", current_ob.runners.len());
+        let mut data_updated = false;
+        let mut updates_applied = 0;
+
+        // Update existing runners with streaming data
+        for (runner_index, runner) in current_ob.runners.iter_mut().enumerate() {
+            let runner_id_str = runner.runner_id.to_string();
+            debug!("Checking runner {runner_index}: ID {runner_id_str}");
+
+            let Some(streaming_ob) = market_orderbooks.get(&runner_id_str) else {
+                debug!("No streaming data found for runner {runner_id_str}");
+                continue;
+            };
+
+            debug!("Found streaming data for runner {runner_id_str}: {} bids, {} asks",
+                   streaming_ob.bids.len(), streaming_ob.asks.len());
+
+            // Check if data actually changed
+            let new_bids: Vec<(f64, f64)> = streaming_ob
+                .bids
+                .iter()
+                .take(10)
+                .map(|level| (level.price, level.size))
+                .collect();
+            let new_asks: Vec<(f64, f64)> = streaming_ob
+                .asks
+                .iter()
+                .take(10)
+                .map(|level| (level.price, level.size))
+                .collect();
+
+            // Log current vs new data for comparison
+            debug!("Runner {runner_id_str} current bids: {:?}", runner.bids.iter().take(3).collect::<Vec<_>>());
+            debug!("Runner {runner_id_str} new bids: {:?}", new_bids.iter().take(3).collect::<Vec<_>>());
+
+            if new_bids != runner.bids || new_asks != runner.asks {
+                info!("Data changed for runner {runner_id_str} - applying update");
+                data_updated = true;
+                updates_applied += 1;
+
+                // Track previous best prices for change detection
+                runner.prev_best_bid = runner.bids.first().map(|(p, _)| *p);
+                runner.prev_best_ask = runner.asks.first().map(|(p, _)| *p);
+                runner.bids = new_bids;
+                runner.asks = new_asks;
+                runner.last_update = Some(Instant::now());
+
+                debug!("Updated runner {runner_id_str}: {} bids, {} asks",
+                       runner.bids.len(), runner.asks.len());
+            } else {
+                debug!("No data changes detected for runner {runner_id_str}");
+            }
+
+            runner.is_streaming = true;
+        }
+
+        if data_updated {
+            self.last_streaming_update = Some(Instant::now());
+            self.diagnostics_update_count += 1;
+            info!("Streaming update complete: {} runners updated out of {} total",
+                  updates_applied, current_ob.runners.len());
+            self.status_message = format!("🔴 LIVE Updated {} runners at {}",
+                                          updates_applied,
+                                          chrono::Local::now().format("%H:%M:%S"));
+        } else {
+            debug!("No data changes detected across {} runners", current_ob.runners.len());
+        }
+    }
+
+    /// Check and maintain streaming connection health
+    async fn check_streaming_connection(&mut self) -> Result<()> {
+        if let Some(client) = &mut self.client {
+            // Check actual connection status from the streaming client
+            let actual_connected = client.is_streaming_connected();
+
+            if self.streaming_connected && !actual_connected {
+                warn!("Streaming connection lost - attempting to reconnect");
+                self.streaming_connected = false;
+                self.current_streaming_market = None;
+                self.status_message = "Streaming connection lost - reconnecting...".to_string();
+
+                // Try to restart streaming
+                match client.start_streaming().await {
+                    Ok(()) => {
+                        if let Some(orderbooks) = client.get_streaming_orderbooks() {
+                            self.streaming_orderbooks = orderbooks;
+                            self.streaming_connected = true;
+                            self.status_message = "Streaming reconnected successfully".to_string();
+                            info!("Streaming connection restored");
+                        } else {
+                            warn!("Streaming restart succeeded but no orderbooks available");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to restart streaming connection: {e}");
+                        let error_msg = format!("Streaming reconnect failed: {e}");
+                        let help_msg = self.get_streaming_error_help(&error_msg);
+                        self.status_message = format!("{error_msg} {help_msg}");
+                    }
+                }
+            } else if !self.streaming_connected && actual_connected {
+                // Connection was restored externally
+                info!("Streaming connection restored externally");
+                self.streaming_connected = true;
+                if let Some(orderbooks) = client.get_streaming_orderbooks() {
+                    self.streaming_orderbooks = orderbooks;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Generate helpful error message based on streaming failure type
+    fn get_streaming_error_help(&self, error: &str) -> String {
+        if error.contains("Failed to subscribe") {
+            "💡 Tip: Check your session token and API key. Try refreshing (R key).".to_string()
+        } else if error.contains("connection") || error.contains("timeout") {
+            "💡 Tip: Check your internet connection. Streaming will retry automatically."
+                .to_string()
+        } else if error.contains("authentication") || error.contains("invalid") {
+            "💡 Tip: Your session may have expired. Try restarting the dashboard.".to_string()
+        } else if error.contains("rate limit") {
+            "💡 Tip: Too many requests. Streaming will resume automatically.".to_string()
+        } else {
+            "💡 Tip: Streaming temporarily unavailable. Using REST API instead.".to_string()
         }
     }
 }
 
 fn ui(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    let constraints = if app.show_diagnostics {
+        vec![
+            Constraint::Min(1),
+            Constraint::Length(8), // Diagnostics panel
+            Constraint::Length(2), // Shortcuts bar
+        ]
+    } else {
+        vec![
             Constraint::Min(1),
             Constraint::Length(2), // Shortcuts bar
-        ])
+        ]
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(f.area());
 
     // Main area split into 2x2 grid
@@ -1066,8 +1333,15 @@ fn ui(f: &mut Frame, app: &App) {
     // Render Order Entry
     render_order_entry(f, right_chunks[1], app);
 
-    // Render Shortcuts Bar with status info
-    render_shortcuts_bar(f, chunks[1], app);
+    // Render Diagnostics Panel if enabled
+    if app.show_diagnostics {
+        render_diagnostics_panel(f, chunks[1], app);
+        // Render Shortcuts Bar
+        render_shortcuts_bar(f, chunks[2], app);
+    } else {
+        // Render Shortcuts Bar
+        render_shortcuts_bar(f, chunks[1], app);
+    }
 }
 
 fn get_selection_key(index: usize) -> String {
@@ -1707,6 +1981,7 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                     ("Enter", "Select"),
                     ("Backspace", "Back"),
                     ("Tab", "Next Panel"),
+                    ("d", "Diagnostics"),
                     ("o", "Order"),
                     ("q", "Quit"),
                 ]
@@ -1716,8 +1991,10 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                     ("↑↓/jk", "Navigate"),
                     ("1-9", "Quick Select"),
                     ("Tab", "Next Panel"),
+                    ("d", "Diagnostics"),
                     ("o", "Order"),
                     ("r", "Refresh"),
+                    ("F5", "Force"),
                     ("q", "Quit"),
                 ]
             }
@@ -1727,6 +2004,7 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                     ("1-9/a-z", "Quick Select"),
                     ("c/Enter", "Cancel"),
                     ("Tab", "Next Panel"),
+                    ("d", "Diagnostics"),
                     ("o", "Order"),
                     ("q", "Quit"),
                 ]
@@ -1735,8 +2013,19 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
                 vec![
                     ("↑↓", "Switch Field"),
                     ("Tab", "Next Panel"),
+                    ("d", "Diagnostics"),
                     ("o", "Order"),
                     ("r", "Refresh"),
+                    ("F5", "Force"),
+                    ("q", "Quit"),
+                ]
+            }
+            Panel::Diagnostics => {
+                vec![
+                    ("d", "Toggle"),
+                    ("r", "Refresh"),
+                    ("F5", "Force"),
+                    ("Tab", "Next Panel"),
                     ("q", "Quit"),
                 ]
             }
@@ -1781,6 +2070,78 @@ fn render_shortcuts_bar(f: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Right);
 
     f.render_widget(shortcuts_paragraph, chunks[1]);
+}
+
+fn render_diagnostics_panel(f: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .title("🔍 Streaming Diagnostics")
+        .borders(Borders::ALL)
+        .border_style(if app.active_panel == Panel::Diagnostics {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::Gray)
+        });
+
+    // Create diagnostic information
+    let streaming_status = if app.streaming_connected {
+        "🟢 Connected"
+    } else {
+        "🔴 Disconnected"
+    };
+
+    let subscribed_market = app.diagnostics_subscribed_market
+        .as_ref()
+        .map(|m| m.as_str())
+        .unwrap_or("None");
+
+    let last_callback = app.diagnostics_last_callback
+        .map(|t| format!("{:.1}s ago", t.elapsed().as_secs_f64()))
+        .unwrap_or_else(|| "Never".to_string());
+
+    let last_update = app.last_streaming_update
+        .map(|t| format!("{:.1}s ago", t.elapsed().as_secs_f64()))
+        .unwrap_or_else(|| "Never".to_string());
+
+    // Create the diagnostic text
+    let diagnostics_text = vec![
+        Line::from(vec![
+            Span::styled("Status: ", Style::default().fg(Color::Cyan)),
+            Span::raw(streaming_status),
+            Span::raw("  |  "),
+            Span::styled("Market: ", Style::default().fg(Color::Cyan)),
+            Span::raw(subscribed_market),
+        ]),
+        Line::from(vec![
+            Span::styled("Updates: ", Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{}", app.diagnostics_update_count)),
+            Span::raw("  |  "),
+            Span::styled("Markets: ", Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{}", app.diagnostics_total_markets)),
+            Span::raw("  |  "),
+            Span::styled("Runners: ", Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{}", app.diagnostics_total_runners)),
+        ]),
+        Line::from(vec![
+            Span::styled("Last Callback: ", Style::default().fg(Color::Cyan)),
+            Span::raw(last_callback),
+            Span::raw("  |  "),
+            Span::styled("Last UI Update: ", Style::default().fg(Color::Cyan)),
+            Span::raw(last_update),
+        ]),
+        Line::from(vec![
+            Span::styled("Toggle: ", Style::default().fg(Color::Yellow)),
+            Span::styled("d", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw("  |  "),
+            Span::styled("Refresh: ", Style::default().fg(Color::Yellow)),
+            Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(diagnostics_text)
+        .block(block)
+        .wrap(Wrap { trim: true });
+
+    f.render_widget(paragraph, area);
 }
 
 fn handle_runner_selection(app: &mut App, index: usize) {
@@ -1879,15 +2240,19 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     app.error_message = None; // Clear any old errors
                 }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
-                    app.load_account_info().await?;
-                    app.load_active_orders().await?;
-                    if let Some(market) = app.selected_market {
-                        let market_id = app.markets.get(market).map(|m| m.id.clone());
-                        if let Some(market_id) = market_id {
-                            app.load_orderbook(&market_id).await?;
-                        }
-                    }
-                    app.status_message = "Refreshed".to_string();
+                    app.perform_manual_refresh().await?;
+                }
+                KeyCode::Char('d') | KeyCode::Char('D') => {
+                    app.show_diagnostics = !app.show_diagnostics;
+                    app.status_message = if app.show_diagnostics {
+                        "Diagnostics panel enabled".to_string()
+                    } else {
+                        "Diagnostics panel disabled".to_string()
+                    };
+                }
+                KeyCode::F(5) => {
+                    // F5 = Force refresh (bypasses streaming)
+                    app.perform_force_refresh().await?;
                 }
                 KeyCode::Char('?') => app.mode = AppMode::Help,
                 // Arrow key navigation (Up/Down for moving within panel)
@@ -1959,6 +2324,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 OrderField::Size => OrderField::Price,
                                 OrderField::Price => OrderField::Size,
                             };
+                        }
+                        Panel::Diagnostics => {
+                            // Diagnostics panel doesn't have navigation
                         }
                     }
                 }
@@ -2042,6 +2410,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 OrderField::Price => OrderField::Size,
                                 OrderField::Size => OrderField::Price,
                             };
+                        }
+                        Panel::Diagnostics => {
+                            // Diagnostics panel doesn't have navigation
                         }
                     }
                 }
@@ -2417,6 +2788,16 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize tracing to a log file (won't interfere with TUI)
+    let file_appender = tracing_appender::rolling::daily(".", "dashboard.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
+    info!("Dashboard starting up with enhanced streaming diagnostics");
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -2474,6 +2855,11 @@ async fn main() -> Result<()> {
             }
             if let Err(e) = app.load_active_orders().await {
                 app.error_message = Some(format!("Refresh failed: {e}"));
+            }
+
+            // Check and maintain streaming connection health
+            if let Err(e) = app.check_streaming_connection().await {
+                app.error_message = Some(format!("Streaming check failed: {e}"));
             }
 
             // If not streaming, also refresh orderbook

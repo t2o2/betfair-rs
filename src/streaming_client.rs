@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 /// Type alias for orderbook callback function
 type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
@@ -148,14 +148,24 @@ impl StreamingClient {
             let orderbooks_ref = orderbooks.clone();
             let update_times_ref = last_update_times.clone();
             streamer.set_orderbook_callback(move |market_id, runner_orderbooks| {
+                info!("Orderbook callback triggered for market {market_id} with {} runners", runner_orderbooks.len());
+
                 if let Ok(mut obs) = orderbooks_ref.write() {
                     obs.insert(market_id.clone(), runner_orderbooks.clone());
+                    info!("Successfully updated shared orderbooks for market {market_id}. Total markets in shared state: {}", obs.len());
+                } else {
+                    error!("Failed to acquire write lock on shared orderbooks for market {market_id}");
                 }
+
                 if let Ok(mut times) = update_times_ref.write() {
                     times.insert(market_id.clone(), Instant::now());
+                    debug!("Updated last update time for market {market_id}");
+                } else {
+                    error!("Failed to acquire write lock on update times for market {market_id}");
                 }
 
                 if let Some(ref callback) = custom_orderbook_callback {
+                    debug!("Calling custom orderbook callback for market {market_id}");
                     callback(market_id, runner_orderbooks);
                 }
             });
@@ -258,9 +268,8 @@ impl StreamingClient {
                             }
 
                             // Send subscription message directly through the message channel
-                            let sub_msg = format!(
-                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
-                            );
+                            let sub_msg =
+                                Self::create_market_subscription_message(&market_id, levels);
                             info!("Sending subscription: {}", sub_msg);
                             if let Err(e) = message_sender.send(sub_msg).await {
                                 error!("Failed to send subscription: {}", e);
@@ -288,15 +297,8 @@ impl StreamingClient {
                             }
 
                             // Create subscription message with multiple market IDs
-                            let market_ids_json = market_ids
-                                .iter()
-                                .map(|id| format!("\"{id}\""))
-                                .collect::<Vec<_>>()
-                                .join(",");
-
-                            let sub_msg = format!(
-                                "{{\"op\": \"marketSubscription\", \"id\": 1, \"marketFilter\": {{ \"marketIds\":[{market_ids_json}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
-                            );
+                            let sub_msg =
+                                Self::create_batch_market_subscription_message(&market_ids, levels);
 
                             info!("Sending batch subscription: {}", sub_msg);
                             if let Err(e) = message_sender.send(sub_msg).await {
@@ -381,14 +383,26 @@ impl StreamingClient {
 
     /// Subscribe to a market
     pub async fn subscribe_to_market(&self, market_id: String, levels: usize) -> Result<()> {
+        info!("Subscribing to market {market_id} with {levels} levels");
+
         if let Some(sender) = &self.command_sender {
-            sender
-                .send(StreamingCommand::Subscribe(market_id, levels))
-                .await?;
+            match sender
+                .send(StreamingCommand::Subscribe(market_id.clone(), levels))
+                .await
+            {
+                Ok(_) => {
+                    info!("Successfully queued subscription command for market {market_id}");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Failed to send subscription command for market {market_id}: {e}");
+                    Err(anyhow::anyhow!("Failed to send subscription command: {e}"))
+                }
+            }
         } else {
-            return Err(anyhow::anyhow!("Streaming client not started"));
+            error!("Cannot subscribe to market {market_id}: streaming client not started");
+            Err(anyhow::anyhow!("Streaming client not started"))
         }
-        Ok(())
     }
 
     /// Subscribe to multiple markets in a single subscription (recommended approach)
@@ -451,6 +465,40 @@ impl StreamingClient {
             .read()
             .map(|connected| *connected)
             .unwrap_or(false)
+    }
+
+    /// Create a market subscription message for a single market
+    fn create_market_subscription_message(market_id: &str, levels: usize) -> String {
+        // Use a timestamp-based ID to avoid conflicts
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            % 10000; // Keep it small but unique
+
+        format!(
+            "{{\"op\": \"marketSubscription\", \"id\": {id}, \"marketFilter\": {{ \"marketIds\":[\"{market_id}\"]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
+        )
+    }
+
+    /// Create a market subscription message for multiple markets
+    fn create_batch_market_subscription_message(market_ids: &[String], levels: usize) -> String {
+        // Use a timestamp-based ID to avoid conflicts
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            % 10000; // Keep it small but unique
+
+        let market_ids_json = market_ids
+            .iter()
+            .map(|id| format!("\"{id}\""))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        format!(
+            "{{\"op\": \"marketSubscription\", \"id\": {id}, \"marketFilter\": {{ \"marketIds\":[{market_ids_json}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
+        )
     }
 }
 

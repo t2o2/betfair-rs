@@ -462,14 +462,31 @@ impl BetfairStreamer {
     }
 
     fn parse_market_change_message(&mut self, market_change_message: MarketChangeMessage) {
+        info!(
+            "Parsing market change message with {} market changes",
+            market_change_message.market_changes.len()
+        );
+
         for market_change in market_change_message.market_changes {
             let market_id = market_change.id;
+            info!("Processing market change for market {market_id}");
+
             let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_default();
 
             if let Some(runner_changes) = market_change.runner_changes {
+                info!(
+                    "Market {market_id} has {} runner changes",
+                    runner_changes.len()
+                );
+
                 for runner_change in runner_changes {
                     let runner_id = runner_change.id.to_string();
+                    debug!("Processing runner change for runner {runner_id} in market {market_id}");
+
                     let orderbook = market_orderbooks.entry(runner_id.clone()).or_default();
+                    let mut has_bid_updates = false;
+                    let mut has_ask_updates = false;
+
                     if let Some(batb) = runner_change.available_to_back {
                         for level in batb {
                             if level.len() >= 3 {
@@ -477,6 +494,7 @@ impl BetfairStreamer {
                                 let price = level[1];
                                 let size = level[2];
                                 orderbook.add_bid(level_index, price, size);
+                                has_bid_updates = true;
                             }
                         }
                     }
@@ -488,22 +506,41 @@ impl BetfairStreamer {
                                 let price = level[1];
                                 let size = level[2];
                                 orderbook.add_ask(level_index, price, size);
+                                has_ask_updates = true;
                             }
                         }
                     }
+
+                    if has_bid_updates || has_ask_updates {
+                        debug!("Updated orderbook for runner {runner_id}: bids={has_bid_updates}, asks={has_ask_updates}");
+                    }
+
                     orderbook.set_ts(market_change_message.pt);
                     debug!("Orderbook for runner {}:", runner_id);
                     debug!("\n{}", orderbook.pretty_print());
                 }
+            } else {
+                debug!("Market {market_id} has no runner changes");
             }
 
+            info!(
+                "Market {market_id} now has {} runners with orderbook data",
+                market_orderbooks.len()
+            );
+
             if let Some(callback) = &self.orderbook_callback {
+                info!(
+                    "Invoking orderbook callback for market {market_id} with {} runners",
+                    market_orderbooks.len()
+                );
                 let market_id_clone = market_id.clone();
                 let orderbooks_clone = market_orderbooks.clone();
                 let callback_clone = callback.clone();
                 tokio::spawn(async move {
                     callback_clone(market_id_clone, orderbooks_clone);
                 });
+            } else {
+                warn!("No orderbook callback set for market {market_id} - data will not be propagated");
             }
         }
     }
