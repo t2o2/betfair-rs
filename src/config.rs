@@ -4,14 +4,6 @@ use std::fs;
 use toml;
 use tracing::info;
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct BetfairCredentials {
-    pub username: String,
-    pub password: String,
-    pub p12: Vec<u8>,
-    pub api_key: String,
-}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BetfairConfig {

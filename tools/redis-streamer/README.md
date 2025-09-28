@@ -84,8 +84,7 @@ The tool uses the same betfair configuration as the main library. Ensure you hav
 username = "your_username"
 password = "your_password"
 api_key = "your_api_key"
-pfx_path = "/path/to/certificate.pfx"
-pfx_password = "certificate_password"
+pem_path = "/path/to/client.pem"
 ```
 
 ## Output Format
