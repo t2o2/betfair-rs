@@ -169,9 +169,10 @@ impl BetfairStreamer {
         )
     }
 
-    pub fn create_order_subscription_message() -> String {
-        "{{\"op\":\"orderSubscription\",\"orderFilter\":{{}},\"segmentationEnabled\":true}}\r\n"
-            .to_string()
+    pub fn create_order_subscription_message(filter_json: &str) -> String {
+        format!(
+            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+        )
     }
 
     pub async fn subscribe(&mut self, market_id: String, levels: usize) -> Result<()> {
@@ -187,8 +188,8 @@ impl BetfairStreamer {
         self.message_sender.clone()
     }
 
-    pub async fn subscribe_to_orders(&mut self) -> Result<()> {
-        let order_sub_msg = Self::create_order_subscription_message();
+    pub async fn subscribe_to_orders(&mut self, filter_json: &str) -> Result<()> {
+        let order_sub_msg = Self::create_order_subscription_message(filter_json);
         info!("Sending order subscription: {}", order_sub_msg);
 
         self.send_message(order_sub_msg).await?;
@@ -226,7 +227,7 @@ impl BetfairStreamer {
 
                 // Resubscribe to orders if needed
                 if self.subscribed_to_orders {
-                    if let Err(e) = self.subscribe_to_orders().await {
+                    if let Err(e) = self.subscribe_to_orders("{}").await {
                         error!("Failed to resubscribe to orders: {}", e);
                     }
                 }

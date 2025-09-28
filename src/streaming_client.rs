@@ -1,4 +1,6 @@
 use crate::config::Config;
+use crate::dto::streaming::{OrderChangeMessage, OrderFilter};
+use crate::order_cache::OrderCache;
 use crate::orderbook::Orderbook;
 use crate::streamer::BetfairStreamer;
 use anyhow::Result;
@@ -11,6 +13,7 @@ use tracing::{error, info};
 
 /// Type alias for orderbook callback function
 type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
+type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 /// A non-blocking streaming client for Betfair market data
 pub struct StreamingClient {
@@ -19,9 +22,11 @@ pub struct StreamingClient {
     streaming_task: Option<JoinHandle<()>>,
     command_sender: Option<mpsc::Sender<StreamingCommand>>,
     orderbooks: Arc<RwLock<HashMap<String, HashMap<String, Orderbook>>>>,
+    orders: Arc<RwLock<HashMap<String, OrderCache>>>,
     is_connected: Arc<RwLock<bool>>,
-    last_update_times: Arc<RwLock<HashMap<String, Instant>>>, // Track update times per market
+    last_update_times: Arc<RwLock<HashMap<String, Instant>>>,
     custom_orderbook_callback: Option<OrderbookCallback>,
+    custom_order_callback: Option<OrderUpdateCallback>,
 }
 
 #[derive(Debug)]
@@ -29,6 +34,7 @@ enum StreamingCommand {
     Subscribe(String, usize),           // market_id, levels
     SubscribeBatch(Vec<String>, usize), // market_ids, levels
     Unsubscribe(String),
+    SubscribeOrders(Option<OrderFilter>), // order subscription with optional filter
     Stop,
 }
 
@@ -41,9 +47,11 @@ impl StreamingClient {
             streaming_task: None,
             command_sender: None,
             orderbooks: Arc::new(RwLock::new(HashMap::new())),
+            orders: Arc::new(RwLock::new(HashMap::new())),
             is_connected: Arc::new(RwLock::new(false)),
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
             custom_orderbook_callback: None,
+            custom_order_callback: None,
         }
     }
 
@@ -55,9 +63,11 @@ impl StreamingClient {
             streaming_task: None,
             command_sender: None,
             orderbooks: Arc::new(RwLock::new(HashMap::new())),
+            orders: Arc::new(RwLock::new(HashMap::new())),
             is_connected: Arc::new(RwLock::new(false)),
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
             custom_orderbook_callback: None,
+            custom_order_callback: None,
         }
     }
 
@@ -89,6 +99,17 @@ impl StreamingClient {
         self.custom_orderbook_callback = Some(Arc::new(callback));
     }
 
+    pub fn set_order_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(OrderChangeMessage) + Send + Sync + 'static,
+    {
+        self.custom_order_callback = Some(Arc::new(callback));
+    }
+
+    pub fn get_orders(&self) -> Arc<RwLock<HashMap<String, OrderCache>>> {
+        self.orders.clone()
+    }
+
     /// Initialize and start the streaming client in a background task
     pub async fn start(&mut self) -> Result<()> {
         // Ensure we have a session token
@@ -107,9 +128,11 @@ impl StreamingClient {
         // Clone necessary data for the task
         let api_key = self.api_key.clone();
         let orderbooks = self.orderbooks.clone();
+        let orders = self.orders.clone();
         let is_connected = self.is_connected.clone();
         let last_update_times = self.last_update_times.clone();
-        let custom_callback = self.custom_orderbook_callback.clone();
+        let custom_orderbook_callback = self.custom_orderbook_callback.clone();
+        let custom_order_callback = self.custom_order_callback.clone();
 
         // Create a oneshot channel to signal when ready
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -125,18 +148,64 @@ impl StreamingClient {
             let orderbooks_ref = orderbooks.clone();
             let update_times_ref = last_update_times.clone();
             streamer.set_orderbook_callback(move |market_id, runner_orderbooks| {
-                // Default behavior: update the shared HashMap
                 if let Ok(mut obs) = orderbooks_ref.write() {
                     obs.insert(market_id.clone(), runner_orderbooks.clone());
                 }
-                // Track update time
                 if let Ok(mut times) = update_times_ref.write() {
                     times.insert(market_id.clone(), Instant::now());
                 }
 
-                // Call custom callback if set
-                if let Some(ref callback) = custom_callback {
+                if let Some(ref callback) = custom_orderbook_callback {
                     callback(market_id, runner_orderbooks);
+                }
+            });
+
+            let orders_ref = orders.clone();
+            streamer.set_orderupdate_callback(move |order_change_message| {
+                if let Ok(mut order_cache_map) = orders_ref.write() {
+                    for order_change in &order_change_message.order_changes {
+                        let market_id = &order_change.id;
+                        let cache = order_cache_map
+                            .entry(market_id.clone())
+                            .or_insert_with(|| OrderCache::new(market_id.clone()));
+
+                        cache.update_timestamp(order_change_message.pt);
+
+                        if order_change.full_image {
+                            cache.clear();
+                        }
+
+                        if let Some(ref runner_changes) = order_change.order_runner_change {
+                            for runner_change in runner_changes {
+                                let runner = cache.get_runner_mut(runner_change.id);
+                                runner.set_handicap(runner_change.handicap);
+
+                                if runner_change.full_image {
+                                    if let Some(ref orders) = runner_change.unmatched_orders {
+                                        runner.apply_full_image(orders.clone());
+                                    } else {
+                                        runner.orders.clear();
+                                    }
+                                } else if let Some(ref orders) = runner_change.unmatched_orders {
+                                    for order in orders {
+                                        runner.update_order(order.clone());
+                                    }
+                                }
+
+                                if let Some(ref matched_backs) = runner_change.matched_backs {
+                                    runner.update_matched_backs(matched_backs.clone());
+                                }
+
+                                if let Some(ref matched_lays) = runner_change.matched_lays {
+                                    runner.update_matched_lays(matched_lays.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(ref callback) = custom_order_callback {
+                    callback(order_change_message);
                 }
             });
 
@@ -250,6 +319,26 @@ impl StreamingClient {
                                 times.remove(&market_id);
                             }
                         }
+                        StreamingCommand::SubscribeOrders(filter) => {
+                            info!("Processing order subscription");
+
+                            let filter_json = if let Some(f) = filter {
+                                serde_json::to_string(&f).unwrap_or_else(|_| "{}".to_string())
+                            } else {
+                                "{}".to_string()
+                            };
+
+                            let sub_msg = format!(
+                                "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+                            );
+
+                            info!("Sending order subscription: {}", sub_msg);
+                            if let Err(e) = message_sender.send(sub_msg).await {
+                                error!("Failed to send order subscription: {}", e);
+                            } else {
+                                info!("Successfully sent order subscription");
+                            }
+                        }
                         StreamingCommand::Stop => {
                             info!("Stopping streaming client");
                             break;
@@ -324,6 +413,18 @@ impl StreamingClient {
         if let Some(sender) = &self.command_sender {
             sender
                 .send(StreamingCommand::Unsubscribe(market_id))
+                .await?;
+        } else {
+            return Err(anyhow::anyhow!("Streaming client not started"));
+        }
+        Ok(())
+    }
+
+    /// Subscribe to order updates
+    pub async fn subscribe_to_orders(&self, filter: Option<OrderFilter>) -> Result<()> {
+        if let Some(sender) = &self.command_sender {
+            sender
+                .send(StreamingCommand::SubscribeOrders(filter))
                 .await?;
         } else {
             return Err(anyhow::anyhow!("Streaming client not started"));

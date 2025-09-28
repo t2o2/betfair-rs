@@ -87,13 +87,27 @@ pub struct OrderChange {
     pub id: String,
     #[serde(rename = "orc")]
     pub order_runner_change: Option<Vec<OrderRunnerChange>>,
+    #[serde(rename = "fullImage", default)]
+    pub full_image: bool,
+    #[serde(default)]
+    pub closed: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct OrderRunnerChange {
     pub id: u64,
+    #[serde(rename = "hc")]
+    pub handicap: Option<f64>,
+    #[serde(rename = "fullImage", default)]
+    pub full_image: bool,
     #[serde(rename = "uo")]
     pub unmatched_orders: Option<Vec<UnmatchedOrder>>,
+    #[serde(rename = "mb")]
+    pub matched_backs: Option<Vec<Vec<f64>>>,
+    #[serde(rename = "ml")]
+    pub matched_lays: Option<Vec<Vec<f64>>>,
+    #[serde(rename = "smc")]
+    pub strategy_matches: Option<std::collections::HashMap<String, StrategyMatchChange>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -101,9 +115,85 @@ pub struct UnmatchedOrder {
     pub id: String,
     pub p: f64,
     pub s: f64,
+    #[serde(default)]
+    pub bsp: Option<f64>,
     pub side: String,
     pub status: String,
-    pub pt: i64,
+    pub pt: String,
     pub ot: String,
     pub pd: i64,
+    #[serde(default)]
+    pub md: Option<i64>,
+    #[serde(default)]
+    pub cd: Option<i64>,
+    #[serde(default)]
+    pub ld: Option<i64>,
+    #[serde(default)]
+    pub lsrc: Option<String>,
+    #[serde(default)]
+    pub avp: Option<f64>,
+    #[serde(default)]
+    pub sm: Option<f64>,
+    #[serde(default)]
+    pub sr: Option<f64>,
+    #[serde(default)]
+    pub sl: Option<f64>,
+    #[serde(default)]
+    pub sc: Option<f64>,
+    #[serde(default)]
+    pub sv: Option<f64>,
+    #[serde(default)]
+    pub rac: Option<String>,
+    #[serde(default)]
+    pub rc: Option<String>,
+    #[serde(default)]
+    pub rfo: Option<String>,
+    #[serde(default)]
+    pub rfs: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StrategyMatchChange {
+    #[serde(rename = "mb")]
+    pub matched_backs: Option<Vec<Vec<f64>>>,
+    #[serde(rename = "ml")]
+    pub matched_lays: Option<Vec<Vec<f64>>>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct OrderFilter {
+    #[serde(
+        rename = "includeOverallPosition",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub include_overall_position: Option<bool>,
+    #[serde(
+        rename = "customerStrategyRefs",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub customer_strategy_refs: Option<Vec<String>>,
+    #[serde(
+        rename = "partitionMatchedByStrategyRef",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub partition_matched_by_strategy_ref: Option<bool>,
+}
+
+impl Default for OrderFilter {
+    fn default() -> Self {
+        Self {
+            include_overall_position: Some(true),
+            customer_strategy_refs: None,
+            partition_matched_by_strategy_ref: Some(false),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct OrderSubscriptionMessage {
+    pub op: String,
+    #[serde(rename = "orderFilter", skip_serializing_if = "Option::is_none")]
+    pub order_filter: Option<OrderFilter>,
+    #[serde(rename = "segmentationEnabled")]
+    pub segmentation_enabled: bool,
 }

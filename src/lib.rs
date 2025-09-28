@@ -105,6 +105,7 @@ pub mod connection_state;
 pub mod dto;
 pub mod msg_model;
 pub mod order;
+pub mod order_cache;
 pub mod orderbook;
 pub mod public_data;
 pub mod rate_limiter;
