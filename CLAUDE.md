@@ -29,25 +29,36 @@ cargo run -- dashboard                                        # Launch interacti
 # Or after building:
 ./target/debug/betfair dashboard                              # Run the built binary directly
 
+## Stream Command (Real-time Market Data)
+cargo run -- stream <MARKET_IDS>                             # Stream specific market IDs to console
+cargo run -- stream 1.123456 1.789012 --depth 10 --interval 2  # Stream with custom depth and interval
+
 ## Redis Tools (Separate Binary)
 # Build and run Redis market streamer (requires Redis server)
 cd tools/redis-streamer
 cargo run -- stream-venue 34750237                           # Stream specific venue game
-cargo run -- stream-all --limit 5                           # Stream all markets (limited)
+cargo run -- stream-all --limit 5 --daemon --interval 10    # Stream all markets with daemon mode
 cargo run -- list-venues                                    # List available venue games
 ```
 
 ## Dashboard (Terminal UI)
 
-The library includes an interactive terminal dashboard for real-time trading:
+The library includes an enhanced interactive terminal dashboard for real-time trading:
 
-- **Interactive terminal dashboard** with real-time market data monitoring
+- **Real-time streaming integration** with live market data and order status updates
+- **Interactive terminal dashboard** with comprehensive market data monitoring
 - Split-screen layout with market browser, order book, active orders, and order entry panels
 - Keyboard navigation with vim-style keybindings (hjkl, Tab to switch panels)
-- Real-time order book display with bid/ask ladder
-- Quick order placement and management
-- Account balance and P&L tracking
-- Connection status indicators
+- **Live order book display** with bid/ask ladder and real-time price updates
+- **Streaming order management** with live order status monitoring
+- Quick order placement and management with immediate feedback
+- Account balance and P&L tracking with real-time updates
+- Connection status indicators for both REST and streaming connections
+- **Enhanced streaming capabilities**:
+  - Real-time market data streaming
+  - Live order book depth updates
+  - Order execution status streaming
+  - Market subscription management
 - Keyboard shortcuts:
   - `Tab`/`Shift+Tab` - Navigate between panels
   - `j/k` or `↑/↓` - Move in lists
@@ -93,8 +104,13 @@ The library includes an interactive terminal dashboard for real-time trading:
 - Token bucket implementation with automatic replenishment
 
 **Authentication Flow:**
-- Certificate-based login using PEM format (combined cert + private key)
-- Session token obtained via `/certlogin` endpoint
+- **Certificate-based login** (primary method): Uses PEM format (combined cert + private key)
+  - Session token obtained via `/certlogin` endpoint
+  - Requires valid Betfair application certificate
+- **Interactive login** (alternative): Username/password authentication without certificates
+  - Session token obtained via standard login endpoint
+  - Useful for development and testing
+  - Use `login_interactive(username, password)` method
 - Token passed in `X-Authentication` header for subsequent requests
 
 **DTO Organization** (`src/dto/`):
@@ -112,6 +128,8 @@ The library includes an interactive terminal dashboard for real-time trading:
 
 ## Configuration Setup
 
+### Certificate-based Authentication (Primary)
+
 Create `config.toml` in project root:
 ```toml
 [betfair]
@@ -126,6 +144,24 @@ Certificate conversion (from Betfair-provided files):
 # Combine certificate and private key into PEM format
 cat client.crt client.key > client.pem
 ```
+
+### Interactive Login (Alternative)
+
+For development and testing without certificates, use environment variables:
+```bash
+export BETFAIR_USERNAME="your_username"
+export BETFAIR_PASSWORD="your_password"
+export BETFAIR_API_KEY="your_api_key"
+```
+
+Or create a `.env` file:
+```env
+BETFAIR_USERNAME=your_username
+BETFAIR_PASSWORD=your_password
+BETFAIR_API_KEY=your_api_key
+```
+
+See `examples/interactive_login_test.rs` for usage example.
 
 ## API Design Principles
 
@@ -145,6 +181,52 @@ cat client.crt client.key > client.pem
 - Integration tests require valid Betfair credentials
 - Examples serve as integration tests and usage documentation
 - Use `cargo test --lib` to run tests without credentials
+
+## Examples
+
+The library includes several example applications demonstrating different features:
+
+### `dashboard.rs` - Interactive Terminal Dashboard
+Real-time trading interface with full market data and order management:
+```bash
+cargo run --example dashboard
+```
+- Split-screen terminal UI with market browser, orderbook, and order entry
+- Vim-style keyboard navigation and shortcuts
+- Real-time streaming market data integration
+- Order placement and management capabilities
+
+### `interactive_login_test.rs` - Certificate-free Authentication
+Demonstrates username/password authentication without certificates:
+```bash
+# Set environment variables first
+export BETFAIR_USERNAME="your_username"
+export BETFAIR_PASSWORD="your_password"
+export BETFAIR_API_KEY="your_api_key"
+
+cargo run --example interactive_login_test
+```
+- Uses `login_interactive()` method
+- Loads credentials from environment variables or `.env` file
+- Tests basic API calls after authentication
+
+### `streaming_orderbook.rs` - Real-time Market Data
+Monitor live orderbook changes for specific markets:
+```bash
+cargo run --example streaming_orderbook
+```
+- WebSocket streaming of market data
+- Real-time orderbook depth monitoring
+- Configurable market subscription and depth
+
+### `streaming_orders.rs` - Order Status Monitoring
+Stream real-time order updates and status changes:
+```bash
+cargo run --example streaming_orders
+```
+- Real-time order execution monitoring
+- Order status change notifications
+- Integration with streaming client
 
 ## Tools and Extensions
 
@@ -172,4 +254,4 @@ The tools directory allows extending functionality without bloating the core lib
 
 ## Dependencies Note
 
-Uses modern reqwest 0.12 for HTTP client with rustls for TLS. All async operations use tokio runtime.
+Uses modern reqwest 0.12 for HTTP client with rustls for TLS. All async operations use tokio runtime. Structured logging implemented with the `tracing` library for better observability and debugging. File-based logging has been removed in favor of configurable structured logging output.
