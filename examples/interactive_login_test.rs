@@ -24,7 +24,6 @@ async fn main() -> Result<()> {
             api_key,
             pfx_path: String::new(),     // Not used for interactive login
             pfx_password: String::new(), // Not used for interactive login
-            proxy_url: None,
         },
     };
 

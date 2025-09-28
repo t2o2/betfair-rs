@@ -20,7 +20,6 @@ pub struct BetfairConfig {
     pub api_key: String,
     pub pfx_path: String,
     pub pfx_password: String,
-    pub proxy_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

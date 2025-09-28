@@ -13,7 +13,6 @@ fn create_test_config() -> Config {
             api_key: "test_api_key".to_string(),
             pfx_path: "test.pfx".to_string(),
             pfx_password: "test_pfx_pass".to_string(),
-            proxy_url: None,
         },
     }
 }
