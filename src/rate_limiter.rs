@@ -100,11 +100,13 @@ impl RateLimiter {
     }
 
     /// Try to acquire a token without waiting
+    #[allow(dead_code)]
     pub async fn try_acquire(&self) -> Result<bool> {
         self.try_acquire_tokens(1.0).await
     }
 
     /// Try to acquire multiple tokens without waiting
+    #[allow(dead_code)]
     pub async fn try_acquire_tokens(&self, tokens: f64) -> Result<bool> {
         if tokens > self.capacity as f64 {
             return Err(anyhow::anyhow!(
@@ -141,6 +143,7 @@ impl RateLimiter {
     }
 
     /// Get current number of available tokens
+    #[allow(dead_code)]
     pub async fn available_tokens(&self) -> f64 {
         let mut state = self.state.lock().await;
 

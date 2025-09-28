@@ -18,9 +18,8 @@ path = "src/bin/betfair.rs"
 
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.9", features = ["rustls-tls", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "http2"] }
 serde = { version = "1.0", features = ["derive"] }
-pkcs8 = { version = "0.10.2", features = ["pkcs5"] }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tracing-appender = "0.2"
 webpki = "0.22"
@@ -30,12 +29,13 @@ toml = "0.8"
 rand = "0.9"
 rustls = "0.23" 
 rustls-pemfile = "2.2"
-pem = "3.0"
+rustls-pki-types = "1.0"
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
 serde_json = "1.0"
 anyhow = "1.0"
 dotenv = "0.15"
 chrono = "0.4"
-tokio-socks = "0.5"
 clap = { version = "4.5.44", features = ["derive"] }
 ratatui = "0.28"
 crossterm = "0.28"

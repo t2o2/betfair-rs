@@ -17,8 +17,7 @@ fn test_config_new_with_valid_file() {
 username = "test_user"
 password = "test_pass"
 api_key = "test_key"
-pfx_path = "/path/to/cert.pfx"
-pfx_password = "cert_pass"
+pem_path = "/path/to/cert.pem"
 "#;
 
     fs::write(&config_path, config_content).unwrap();
@@ -35,8 +34,7 @@ pfx_password = "cert_pass"
     assert_eq!(config.betfair.username, "test_user");
     assert_eq!(config.betfair.password, "test_pass");
     assert_eq!(config.betfair.api_key, "test_key");
-    assert_eq!(config.betfair.pfx_path, "/path/to/cert.pfx");
-    assert_eq!(config.betfair.pfx_password, "cert_pass");
+    assert_eq!(config.betfair.pem_path, "/path/to/cert.pem");
 }
 
 #[test]
@@ -109,16 +107,14 @@ fn test_betfair_config_clone() {
         username: "user".to_string(),
         password: "pass".to_string(),
         api_key: "key".to_string(),
-        pfx_path: "/path".to_string(),
-        pfx_password: "pfx_pass".to_string(),
+        pem_path: "/path".to_string(),
     };
 
     let cloned = config.clone();
     assert_eq!(config.username, cloned.username);
     assert_eq!(config.password, cloned.password);
     assert_eq!(config.api_key, cloned.api_key);
-    assert_eq!(config.pfx_path, cloned.pfx_path);
-    assert_eq!(config.pfx_password, cloned.pfx_password);
+    assert_eq!(config.pem_path, cloned.pem_path);
 }
 
 #[test]
@@ -127,8 +123,7 @@ fn test_config_clone() {
         username: "user".to_string(),
         password: "pass".to_string(),
         api_key: "key".to_string(),
-        pfx_path: "/path".to_string(),
-        pfx_password: "pfx_pass".to_string(),
+        pem_path: "/path".to_string(),
     };
 
     let config = Config {

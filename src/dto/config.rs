@@ -8,8 +8,7 @@ pub struct BetfairCredentialsDto {
     pub username: String,
     pub password: String,
     pub api_key: String,
-    pub pfx_path: Option<String>,
-    pub pfx_password: Option<String>,
+    pub pem_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,8 +16,7 @@ pub struct BetfairConfigDto {
     pub username: String,
     pub password: String,
     pub api_key: String,
-    pub pfx_path: String,
-    pub pfx_password: String,
+    pub pem_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

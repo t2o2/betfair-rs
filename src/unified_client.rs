@@ -288,8 +288,7 @@ mod tests {
                 username: "test_user".to_string(),
                 password: "test_pass".to_string(),
                 api_key: "test_api_key".to_string(),
-                pfx_path: "/tmp/test.pfx".to_string(),
-                pfx_password: "test_pfx_pass".to_string(),
+                pem_path: "/tmp/test.pem".to_string(),
             },
         }
     }

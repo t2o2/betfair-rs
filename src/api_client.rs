@@ -14,6 +14,14 @@ const INTERACTIVE_LOGIN_URL: &str = "https://identitysso.betfair.com/api/login";
 const BETTING_URL: &str = "https://api.betfair.com/exchange/betting/json-rpc/v1";
 const ACCOUNT_URL: &str = "https://api.betfair.com/exchange/account/json-rpc/v1";
 
+fn load_pem_identity(pem_path: &str) -> Result<reqwest::Identity> {
+    let pem_contents = std::fs::read(pem_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read PEM file {}: {}", pem_path, e))?;
+
+    reqwest::Identity::from_pem(&pem_contents)
+        .map_err(|e| anyhow::anyhow!("Failed to parse PEM identity: {}", e))
+}
+
 /// Unified API client for all Betfair operations
 pub struct BetfairApiClient {
     client: Client,
@@ -39,11 +47,12 @@ impl BetfairApiClient {
 
     /// Login to Betfair using certificate authentication and obtain session token
     pub async fn login(&mut self) -> Result<LoginResponse> {
+        crate::ensure_crypto_provider();
+
         let api_key = self.config.betfair.api_key.clone();
         let username = self.config.betfair.username.clone();
         let password = self.config.betfair.password.clone();
-        let pfx_path = self.config.betfair.pfx_path.clone();
-        let pfx_password = self.config.betfair.pfx_password.clone();
+        let pem_path = self.config.betfair.pem_path.clone();
 
         let response = self
             .retry_policy
@@ -51,13 +60,9 @@ impl BetfairApiClient {
                 let api_key = api_key.clone();
                 let username = username.clone();
                 let password = password.clone();
-                let pfx_path = pfx_path.clone();
-                let pfx_password = pfx_password.clone();
+                let pem_path = pem_path.clone();
                 async move {
-                    // Read and create identity inside the retry closure
-                    let pem_contents = std::fs::read(&pfx_path)?;
-                    let identity =
-                        reqwest::Identity::from_pkcs12_der(&pem_contents, &pfx_password)?;
+                    let identity = load_pem_identity(&pem_path)?;
 
                     let mut headers = HeaderMap::new();
                     headers.insert("X-Application", api_key.parse()?);
@@ -69,14 +74,15 @@ impl BetfairApiClient {
                         ("password", password.as_str()),
                     ];
 
-                    let mut http_response = client
+                    let http_response = client
                         .post(LOGIN_URL)
                         .headers(headers)
                         .header("X-Application", format!("app_{}", rand::random::<u128>()))
                         .form(&form)
-                        .send()?;
+                        .send()
+                        .await?;
 
-                    let response_text = http_response.text()?;
+                    let response_text = http_response.text().await?;
                     tracing::info!("Login response: {}", response_text);
 
                     let response: LoginResponse = serde_json::from_str(&response_text)?;
@@ -121,14 +127,15 @@ impl BetfairApiClient {
                         ("password", password.as_str()),
                     ];
 
-                    let mut response = client
+                    let response = client
                         .post(INTERACTIVE_LOGIN_URL)
                         .headers(headers)
                         .form(&form)
-                        .send()?;
+                        .send()
+                        .await?;
 
                     let status = response.status();
-                    let body = response.text()?;
+                    let body = response.text().await?;
 
                     debug!("Interactive login response status: {}", status);
                     debug!("Interactive login response body: {}", body);
@@ -260,16 +267,17 @@ impl BetfairApiClient {
 
                     debug!("API request: {}", serde_json::to_string(&jsonrpc_request)?);
 
-                    let mut response = client
+                    let response = client
                         .post(&url_str)
                         .headers(headers)
                         .json(&jsonrpc_request)
-                        .send()?;
+                        .send()
+                        .await?;
 
                     let status = response.status();
                     debug!("API response status: {}", status);
 
-                    let response_text = response.text()?;
+                    let response_text = response.text().await?;
                     debug!("API response: {}", response_text);
 
                     if !status.is_success() {
@@ -723,8 +731,7 @@ mod tests {
                 username: "test_user".to_string(),
                 password: "test_pass".to_string(),
                 api_key: "test_key".to_string(),
-                pfx_path: "/tmp/test.pfx".to_string(),
-                pfx_password: "test_pfx_pass".to_string(),
+                pem_path: "/tmp/test.pem".to_string(),
             },
         }
     }
@@ -971,7 +978,7 @@ mod tests {
         assert_eq!(filter.event_type_ids.unwrap()[0], "1");
         assert_eq!(filter.competition_ids.unwrap()[0], "10");
         assert_eq!(filter.market_ids.unwrap()[0], "1.123456");
-        assert_eq!(filter.in_play_only.unwrap(), true);
+        assert!(filter.in_play_only.unwrap());
     }
 
     #[test]

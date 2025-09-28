@@ -110,12 +110,12 @@ fn print_order_summary(market_id: &str, cache: &betfair_rs::order_cache::OrderCa
 
                 if let Some(remaining) = order.sr {
                     if remaining > 0.0 {
-                        println!("    Remaining: {:.2}", remaining);
+                        println!("    Remaining: {remaining:.2}");
                     }
                 }
 
                 if let Some(avg_price) = order.avp {
-                    println!("    Average Price Matched: {:.2}", avg_price);
+                    println!("    Average Price Matched: {avg_price:.2}");
                 }
             }
         }

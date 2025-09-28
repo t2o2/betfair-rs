@@ -18,8 +18,7 @@ pub struct BetfairConfig {
     pub username: String,
     pub password: String,
     pub api_key: String,
-    pub pfx_path: String,
-    pub pfx_password: String,
+    pub pem_path: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

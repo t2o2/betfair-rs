@@ -93,7 +93,7 @@ The library includes an interactive terminal dashboard for real-time trading:
 - Token bucket implementation with automatic replenishment
 
 **Authentication Flow:**
-- Certificate-based login using PKCS12 (.pfx) files
+- Certificate-based login using PEM format (combined cert + private key)
 - Session token obtained via `/certlogin` endpoint
 - Token passed in `X-Authentication` header for subsequent requests
 
@@ -116,15 +116,15 @@ Create `config.toml` in project root:
 ```toml
 [betfair]
 username = "your_username"
-password = "your_password"  
+password = "your_password"
 api_key = "your_api_key"
-pfx_path = "/absolute/path/to/client.pfx"
-pfx_password = "certificate_password"
+pem_path = "/absolute/path/to/client.pem"
 ```
 
 Certificate conversion (from Betfair-provided files):
 ```bash
-openssl pkcs12 -export -out client.pfx -inkey client.key -in client.crt
+# Combine certificate and private key into PEM format
+cat client.crt client.key > client.pem
 ```
 
 ## API Design Principles
@@ -172,4 +172,4 @@ The tools directory allows extending functionality without bloating the core lib
 
 ## Dependencies Note
 
-Uses reqwest 0.9 (older version) for HTTP client - be aware of API differences from modern reqwest when making changes.
+Uses modern reqwest 0.12 for HTTP client with rustls for TLS. All async operations use tokio runtime.

@@ -523,8 +523,7 @@ mod tests {
                 username: "test_user".to_string(),
                 password: "test_pass".to_string(),
                 api_key: "test_api_key".to_string(),
-                pfx_path: "/tmp/test.pfx".to_string(),
-                pfx_password: "test_pfx_pass".to_string(),
+                pem_path: "/tmp/test.pem".to_string(),
             },
         }
     }
@@ -672,7 +671,7 @@ mod tests {
             let ob_clone = Arc::clone(&orderbooks);
             let handle = thread::spawn(move || {
                 let mut books = ob_clone.write().unwrap();
-                books.insert(format!("market_{}", i), HashMap::new());
+                books.insert(format!("market_{i}"), HashMap::new());
             });
             handles.push(handle);
         }

@@ -49,54 +49,44 @@
 //!
 //! ## Configuration
 //!
-//! Create a `config.toml` file with your Betfair credentials:
+//! Create a `config.toml` file in your project root:
 //!
 //! ```toml
 //! [betfair]
 //! username = "your_username"
 //! password = "your_password"
 //! api_key = "your_api_key"
-//! pfx_path = "/path/to/certificate.pfx"
-//! pfx_password = "certificate_password"
+//! pem_path = "/path/to/certificate.pem"
 //! ```
 //!
-//! ## Certificate Setup
-//!
-//! Convert your Betfair certificate files to PKCS#12 format:
-//!
-//! ```bash
-//! openssl pkcs12 -export -out client.pfx -inkey client.key -in client.crt
-//! ```
-//!
-//! ## Streaming Example
+//! ## Example: Streaming Market Data
 //!
 //! ```no_run
 //! use betfair_rs::{BetfairApiClient, StreamingClient, Config};
+//! use std::time::Duration;
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let config = Config::new()?;
 //! let mut api_client = BetfairApiClient::new(config.clone());
-//!
-//! // Login and get session token
 //! api_client.login().await?;
+//!
 //! let session_token = api_client.get_session_token()
 //!     .ok_or_else(|| anyhow::anyhow!("No session token"))?;
 //!
-//! // Create streaming client
 //! let mut streaming_client = StreamingClient::with_session_token(
 //!     config.betfair.api_key.clone(),
-//!     session_token,
+//!     session_token
 //! );
 //!
-//! // Start streaming and subscribe to market
 //! streaming_client.start().await?;
-//! streaming_client.subscribe_to_market("1.240634817".to_string(), 5).await?;
+//! streaming_client.subscribe_to_market("1.234567".to_string(), 10).await?;
 //!
-//! // Access orderbook data
 //! let orderbooks = streaming_client.get_orderbooks();
 //! # Ok(())
 //! # }
 //! ```
+
+use std::sync::Once;
 
 pub mod account;
 pub mod api_client;
@@ -107,16 +97,22 @@ pub mod msg_model;
 pub mod order;
 pub mod order_cache;
 pub mod orderbook;
-pub mod public_data;
-pub mod rate_limiter;
-pub mod retry;
-pub mod streamer;
+mod public_data;
+mod rate_limiter;
+mod retry;
+mod streamer;
 pub mod streaming_client;
 pub mod unified_client;
 
-// Re-export commonly used types at the crate root
+static CRYPTO_PROVIDER_INIT: Once = Once::new();
+
+pub(crate) fn ensure_crypto_provider() {
+    CRYPTO_PROVIDER_INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 pub use api_client::BetfairApiClient;
 pub use config::Config;
-pub use dto::*;
 pub use streaming_client::StreamingClient;
 pub use unified_client::UnifiedBetfairClient;

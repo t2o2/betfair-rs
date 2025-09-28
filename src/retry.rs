@@ -78,6 +78,7 @@ impl RetryPolicy {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn retry_with_jitter<F, Fut, T>(&self, operation: F) -> Result<T>
     where
         F: Fn() -> Fut,

@@ -5,6 +5,7 @@ use crate::msg_model::OrderChangeMessage;
 use crate::orderbook::Orderbook;
 use crate::retry::{RetryConfig, RetryPolicy};
 use anyhow::Result;
+use rustls_pki_types::ServerName;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,8 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio_native_tls::native_tls::TlsConnector;
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tokio_rustls::TlsConnector;
 use tracing::{debug, error, info, warn};
 
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
@@ -87,16 +89,23 @@ impl BetfairStreamer {
             "{{\"op\": \"authentication\",\"id\":1, \"appKey\": \"{}\", \"session\": \"{}\"}}\r\n",
             self.app_key, self.ssoid
         );
-        info!("{}", auth_msg);
+        info!("{auth_msg}");
         let tcp_stream = TcpStream::connect(STREAM_API_ENDPOINT).await?;
 
-        let connector = TlsConnector::builder()
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build TLS connector: {}", e))?;
-        let connector = tokio_native_tls::TlsConnector::from(connector);
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        let config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        let connector = TlsConnector::from(Arc::new(config));
+        let domain = ServerName::try_from(STREAM_API_HOST)
+            .map_err(|e| anyhow::anyhow!("Invalid DNS name: {e}"))?
+            .to_owned();
 
         let tls_stream = connector
-            .connect(STREAM_API_HOST, tcp_stream)
+            .connect(domain, tcp_stream)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to establish TLS connection: {}", e))?;
 

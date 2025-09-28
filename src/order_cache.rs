@@ -243,7 +243,7 @@ mod tests {
 
         runner.update_matched_backs(vec![vec![2.0, 0.0]]);
         assert_eq!(runner.matched_backs.len(), 1);
-        assert!(runner.matched_backs.get("2").is_none());
+        assert!(!runner.matched_backs.contains_key("2"));
     }
 
     #[test]

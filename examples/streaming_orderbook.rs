@@ -69,7 +69,7 @@ fn print_orderbook_summary(market_id: &str, market_books: &HashMap<String, Order
     println!("{}", "-".repeat(80));
 
     for (selection_id, orderbook) in market_books.iter() {
-        println!("\nSelection ID: {}", selection_id);
+        println!("\nSelection ID: {selection_id}");
 
         // Get top 5 bids and asks
         let top_bids: Vec<&PriceLevel> = orderbook.bids.iter().take(5).collect();
@@ -97,7 +97,7 @@ fn print_orderbook_summary(market_id: &str, market_books: &HashMap<String, Order
                 " ".repeat(20)
             };
 
-            println!("{} | {}", bid_str, ask_str);
+            println!("{bid_str} | {ask_str}");
         }
 
         if let (Some(best_bid), Some(best_ask)) =

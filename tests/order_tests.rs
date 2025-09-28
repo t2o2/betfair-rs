@@ -1,5 +1,6 @@
-use betfair_rs::order::{LimitOrder, Order};
-use betfair_rs::{OrderType, PersistenceType, Side};
+use betfair_rs::dto::order::LimitOrder;
+use betfair_rs::dto::common::{OrderType, PersistenceType, Side};
+use betfair_rs::order::Order;
 
 #[test]
 fn test_order_creation() {

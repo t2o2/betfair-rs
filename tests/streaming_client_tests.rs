@@ -9,8 +9,7 @@ fn create_test_config() -> Config {
             username: "test_user".to_string(),
             password: "test_pass".to_string(),
             api_key: "test_api_key".to_string(),
-            pfx_path: "test.pfx".to_string(),
-            pfx_password: "test_pfx_pass".to_string(),
+            pem_path: "test.pem".to_string(),
         },
     }
 }
@@ -130,7 +129,7 @@ fn test_shared_orderbooks_thread_safety() {
         let orderbooks_clone = Arc::clone(&orderbooks);
         let handle = thread::spawn(move || {
             let mut books = orderbooks_clone.write().unwrap();
-            books.insert(format!("market_{}", i), HashMap::new());
+            books.insert(format!("market_{i}"), HashMap::new());
         });
         handles.push(handle);
     }

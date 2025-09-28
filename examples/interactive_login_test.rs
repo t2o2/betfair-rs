@@ -22,8 +22,7 @@ async fn main() -> Result<()> {
             username: String::new(), // Not used for interactive login
             password: String::new(), // Not used for interactive login
             api_key,
-            pfx_path: String::new(),     // Not used for interactive login
-            pfx_password: String::new(), // Not used for interactive login
+            pem_path: String::new(), // Not used for interactive login
         },
     };
 
@@ -33,7 +32,7 @@ async fn main() -> Result<()> {
     info!("Attempting interactive login...");
 
     // Use interactive login instead of certificate login
-    let login_response = client.login_interactive(username, password).await?;
+    let _login_response = client.login_interactive(username, password).await?;
 
     info!("Login successful!");
     info!("Session token: {:?}", client.get_session_token());

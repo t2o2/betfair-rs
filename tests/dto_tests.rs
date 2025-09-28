@@ -265,7 +265,7 @@ fn test_market_book_deserialization() {
 
     let market_book: MarketBook = from_value(json).unwrap();
     assert_eq!(market_book.market_id, "1.123456");
-    assert_eq!(market_book.is_market_data_delayed, false);
+    assert!(!market_book.is_market_data_delayed);
     assert_eq!(
         market_book.status,
         Some(betfair_rs::dto::MarketStatus::Open)

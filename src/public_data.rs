@@ -2,8 +2,6 @@ use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-const PUBLIC_API_URL: &str = "https://api.betfair.com/exchange/betting/rest/v1.0";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sport {
@@ -18,12 +16,14 @@ pub struct EventType {
     pub name: String,
 }
 
+#[allow(dead_code)]
 pub struct PublicDataClient {
     client: Client,
     app_key: Option<String>,
 }
 
 impl PublicDataClient {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             client: Client::new(),
@@ -31,6 +31,7 @@ impl PublicDataClient {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_app_key(app_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -38,7 +39,9 @@ impl PublicDataClient {
         }
     }
 
-    pub fn list_sports(&self) -> Result<Vec<Sport>> {
+    #[allow(dead_code)]
+    pub async fn list_sports(&self) -> Result<Vec<Sport>> {
+        const PUBLIC_API_URL: &str = "https://api.betfair.com/exchange/betting/rest/v1.0";
         let url = format!("{PUBLIC_API_URL}/listEventTypes/");
 
         let mut request = self
@@ -51,25 +54,28 @@ impl PublicDataClient {
             request = request.header("X-Application", app_key);
         }
 
-        let mut response = request
+        let response = request
             .json(&serde_json::json!({
                 "filter": {},
                 "locale": "en"
             }))
-            .send()?;
+            .send()
+            .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response
                 .text()
+                .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow::anyhow!(
                 "Failed to fetch sports: HTTP {} - {}",
-                response.status(),
+                status,
                 error_text
             ));
         }
 
-        let sports: Vec<Sport> = response.json()?;
+        let sports: Vec<Sport> = response.json().await?;
         Ok(sports)
     }
 }
