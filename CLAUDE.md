@@ -88,6 +88,8 @@ The library includes an enhanced interactive terminal dashboard for real-time tr
    - Optional MarketFilter parameters for flexible querying
 
 3. **StreamingClient** (`src/streaming_client.rs`) - Real-time streaming client
+   - All streaming markets need to be subscribed in one request
+   - Old subscription will be replaced by new request
    - WebSocket streaming for real-time market data
    - Non-blocking architecture
    - Can accept external session token
