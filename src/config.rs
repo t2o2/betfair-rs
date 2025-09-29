@@ -4,7 +4,6 @@ use std::fs;
 use toml;
 use tracing::info;
 
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct BetfairConfig {
     pub username: String,

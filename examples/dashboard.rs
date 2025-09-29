@@ -175,7 +175,7 @@ struct App {
     #[allow(dead_code)]
     last_update: Instant,
     subscribed_markets: HashSet<String>, // Track all markets we're streaming
-    max_subscribed_markets: usize, // Maximum number of markets to subscribe to simultaneously
+    max_subscribed_markets: usize,       // Maximum number of markets to subscribe to simultaneously
 
     // Search state
     #[allow(dead_code)]
@@ -355,6 +355,7 @@ impl App {
                 .into_iter()
                 .map(|e| (e.event.id, e.event.name, e.market_count as u32))
                 .collect();
+            self.events.sort_by(|a, b| b.2.cmp(&a.2));
         }
         Ok(())
     }
@@ -382,7 +383,7 @@ impl App {
             };
 
             let markets_data = client.list_market_catalogue(request).await?;
-            self.markets = markets_data
+            let mut markets: Vec<Market> = markets_data
                 .into_iter()
                 .map(|m| Market {
                     id: m.market_id,
@@ -404,6 +405,13 @@ impl App {
                         .collect(),
                 })
                 .collect();
+
+            markets.sort_by(|a, b| {
+                b.total_matched
+                    .partial_cmp(&a.total_matched)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            self.markets = markets;
         }
         Ok(())
     }
@@ -451,8 +459,10 @@ impl App {
 
             // Check if we need to add this market to the subscription
             let needs_subscription = !self.subscribed_markets.contains(market_id);
-            info!("Market {market_id}: needs_subscription={}, current_set={:?}",
-                  needs_subscription, self.subscribed_markets);
+            info!(
+                "Market {market_id}: needs_subscription={}, current_set={:?}",
+                needs_subscription, self.subscribed_markets
+            );
 
             if needs_subscription {
                 info!("Adding market {market_id} to subscription set");
@@ -471,8 +481,13 @@ impl App {
 
                 // Subscribe to all markets in the set
                 if let Some(client) = &self.client {
-                    let market_list: Vec<String> = self.subscribed_markets.iter().cloned().collect();
-                    info!("Subscribing to {} markets: {:?}", market_list.len(), market_list);
+                    let market_list: Vec<String> =
+                        self.subscribed_markets.iter().cloned().collect();
+                    info!(
+                        "Subscribing to {} markets: {:?}",
+                        market_list.len(),
+                        market_list
+                    );
 
                     if let Err(e) = client.subscribe_to_markets(market_list.clone(), 5).await {
                         error!("Failed to subscribe to markets: {e}");
@@ -482,8 +497,16 @@ impl App {
                         self.streaming_connected = false;
                     } else {
                         info!("Successfully subscribed to {} markets", market_list.len());
-                        self.status_message = format!("🟢 Streaming {} markets: {}", market_list.len(),
-                                                    market_list.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+                        self.status_message = format!(
+                            "🟢 Streaming {} markets: {}",
+                            market_list.len(),
+                            market_list
+                                .iter()
+                                .take(3)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
 
                         // Give streaming more time to populate initial data
                         tokio::time::sleep(Duration::from_millis(2000)).await;
@@ -492,8 +515,11 @@ impl App {
             } else {
                 // Already subscribed to this market, just wait a bit for fresh data
                 info!("Market {market_id} already in subscription set, waiting for fresh data");
-                self.status_message = format!("🔄 Already streaming {} ({} total markets)",
-                                            market_id, self.subscribed_markets.len());
+                self.status_message = format!(
+                    "🔄 Already streaming {} ({} total markets)",
+                    market_id,
+                    self.subscribed_markets.len()
+                );
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
 
@@ -712,8 +738,10 @@ impl App {
                 // Restore streaming status
                 if was_streaming {
                     self.streaming_connected = true;
-                    self.status_message = format!("🔄 Manual refresh complete for {market_id} at {}",
-                                                chrono::Local::now().format("%H:%M:%S"));
+                    self.status_message = format!(
+                        "🔄 Manual refresh complete for {market_id} at {}",
+                        chrono::Local::now().format("%H:%M:%S")
+                    );
                 } else {
                     self.status_message = "🔄 Manual refresh complete".to_string();
                 }
@@ -740,7 +768,9 @@ impl App {
             if let Some(market_id) = market_id {
                 let was_streaming = self.streaming_connected;
 
-                info!("Force refreshing orderbook for market {market_id} - bypassing streaming cache");
+                info!(
+                    "Force refreshing orderbook for market {market_id} - bypassing streaming cache"
+                );
 
                 // Temporarily disable streaming to force REST API call
                 self.streaming_connected = false;
@@ -753,8 +783,10 @@ impl App {
                 // Restore streaming status
                 self.streaming_connected = was_streaming;
 
-                self.status_message = format!("⚡ Force refresh complete for {market_id} at {}",
-                                            chrono::Local::now().format("%H:%M:%S"));
+                self.status_message = format!(
+                    "⚡ Force refresh complete for {market_id} at {}",
+                    chrono::Local::now().format("%H:%M:%S")
+                );
             } else {
                 self.status_message = "⚡ Force refresh complete (account and orders)".to_string();
             }
@@ -1118,7 +1150,10 @@ impl App {
         };
 
         let Some(market) = self.markets.get(market_idx) else {
-            debug!("Selected market index {} out of bounds - skipping update", market_idx);
+            debug!(
+                "Selected market index {} out of bounds - skipping update",
+                market_idx
+            );
             return;
         };
 
@@ -1156,10 +1191,12 @@ impl App {
             if markets_list.len() <= 3 {
                 Some(markets_list.join(", "))
             } else {
-                Some(format!("{} markets: {} ... and {} more",
-                           markets_list.len(),
-                           markets_list[..2].join(", "),
-                           markets_list.len() - 2))
+                Some(format!(
+                    "{} markets: {} ... and {} more",
+                    markets_list.len(),
+                    markets_list[..2].join(", "),
+                    markets_list.len() - 2
+                ))
             }
         };
         self.diagnostics_last_callback = Some(Instant::now());
@@ -1174,7 +1211,10 @@ impl App {
             return;
         };
 
-        info!("Found streaming data for market {market_id} with {} runners", market_orderbooks.len());
+        info!(
+            "Found streaming data for market {market_id} with {} runners",
+            market_orderbooks.len()
+        );
 
         // Update status to show we're receiving streaming data
         self.status_message = format!("🔴 LIVE {} runners streaming", market_orderbooks.len());
@@ -1186,11 +1226,17 @@ impl App {
 
         // Only update if we have the same market
         if current_ob.market_id != *market_id {
-            warn!("Current orderbook market ID {} doesn't match streaming market {market_id}", current_ob.market_id);
+            warn!(
+                "Current orderbook market ID {} doesn't match streaming market {market_id}",
+                current_ob.market_id
+            );
             return;
         }
 
-        debug!("Updating {} runners in current orderbook", current_ob.runners.len());
+        debug!(
+            "Updating {} runners in current orderbook",
+            current_ob.runners.len()
+        );
         let mut data_updated = false;
         let mut updates_applied = 0;
 
@@ -1204,8 +1250,11 @@ impl App {
                 continue;
             };
 
-            debug!("Found streaming data for runner {runner_id_str}: {} bids, {} asks",
-                   streaming_ob.bids.len(), streaming_ob.asks.len());
+            debug!(
+                "Found streaming data for runner {runner_id_str}: {} bids, {} asks",
+                streaming_ob.bids.len(),
+                streaming_ob.asks.len()
+            );
 
             // Check if data actually changed
             let new_bids: Vec<(f64, f64)> = streaming_ob
@@ -1222,8 +1271,14 @@ impl App {
                 .collect();
 
             // Log current vs new data for comparison
-            debug!("Runner {runner_id_str} current bids: {:?}", runner.bids.iter().take(3).collect::<Vec<_>>());
-            debug!("Runner {runner_id_str} new bids: {:?}", new_bids.iter().take(3).collect::<Vec<_>>());
+            debug!(
+                "Runner {runner_id_str} current bids: {:?}",
+                runner.bids.iter().take(3).collect::<Vec<_>>()
+            );
+            debug!(
+                "Runner {runner_id_str} new bids: {:?}",
+                new_bids.iter().take(3).collect::<Vec<_>>()
+            );
 
             if new_bids != runner.bids || new_asks != runner.asks {
                 info!("Data changed for runner {runner_id_str} - applying update");
@@ -1237,8 +1292,11 @@ impl App {
                 runner.asks = new_asks;
                 runner.last_update = Some(Instant::now());
 
-                debug!("Updated runner {runner_id_str}: {} bids, {} asks",
-                       runner.bids.len(), runner.asks.len());
+                debug!(
+                    "Updated runner {runner_id_str}: {} bids, {} asks",
+                    runner.bids.len(),
+                    runner.asks.len()
+                );
             } else {
                 debug!("No data changes detected for runner {runner_id_str}");
             }
@@ -1249,13 +1307,21 @@ impl App {
         if data_updated {
             self.last_streaming_update = Some(Instant::now());
             self.diagnostics_update_count += 1;
-            info!("Streaming update complete: {} runners updated out of {} total",
-                  updates_applied, current_ob.runners.len());
-            self.status_message = format!("🔴 LIVE Updated {} runners at {}",
-                                          updates_applied,
-                                          chrono::Local::now().format("%H:%M:%S"));
+            info!(
+                "Streaming update complete: {} runners updated out of {} total",
+                updates_applied,
+                current_ob.runners.len()
+            );
+            self.status_message = format!(
+                "🔴 LIVE Updated {} runners at {}",
+                updates_applied,
+                chrono::Local::now().format("%H:%M:%S")
+            );
         } else {
-            debug!("No data changes detected across {} runners", current_ob.runners.len());
+            debug!(
+                "No data changes detected across {} runners",
+                current_ob.runners.len()
+            );
         }
     }
 
@@ -2122,15 +2188,18 @@ fn render_diagnostics_panel(f: &mut Frame, area: Rect, app: &App) {
         "🔴 Disconnected"
     };
 
-    let subscribed_market = app.diagnostics_subscribed_market
+    let subscribed_market = app
+        .diagnostics_subscribed_market
         .as_deref()
         .unwrap_or("None");
 
-    let last_callback = app.diagnostics_last_callback
+    let last_callback = app
+        .diagnostics_last_callback
         .map(|t| format!("{:.1}s ago", t.elapsed().as_secs_f64()))
         .unwrap_or_else(|| "Never".to_string());
 
-    let last_update = app.last_streaming_update
+    let last_update = app
+        .last_streaming_update
         .map(|t| format!("{:.1}s ago", t.elapsed().as_secs_f64()))
         .unwrap_or_else(|| "Never".to_string());
 
@@ -2162,10 +2231,20 @@ fn render_diagnostics_panel(f: &mut Frame, area: Rect, app: &App) {
         ]),
         Line::from(vec![
             Span::styled("Toggle: ", Style::default().fg(Color::Yellow)),
-            Span::styled("d", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "d",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  |  "),
             Span::styled("Refresh: ", Style::default().fg(Color::Yellow)),
-            Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "r",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
     ];
 

@@ -1,5 +1,5 @@
-use betfair_rs::dto::order::LimitOrder;
 use betfair_rs::dto::common::{OrderType, PersistenceType, Side};
+use betfair_rs::dto::order::LimitOrder;
 use betfair_rs::order::Order;
 
 #[test]
