@@ -29,7 +29,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
@@ -174,7 +174,8 @@ struct App {
     streaming_connected: bool,
     #[allow(dead_code)]
     last_update: Instant,
-    current_streaming_market: Option<String>, // Track which market we're streaming
+    subscribed_markets: HashSet<String>, // Track all markets we're streaming
+    max_subscribed_markets: usize, // Maximum number of markets to subscribe to simultaneously
 
     // Search state
     #[allow(dead_code)]
@@ -236,7 +237,8 @@ impl App {
             api_connected: false,
             streaming_connected: false,
             last_update: Instant::now(),
-            current_streaming_market: None,
+            subscribed_markets: HashSet::new(),
+            max_subscribed_markets: 10, // Allow up to 10 markets to be subscribed simultaneously
 
             search_query: String::new(),
 
@@ -447,30 +449,41 @@ impl App {
         if self.streaming_connected {
             info!("Attempting to use streaming for market {market_id}");
 
-            // Check if we need to subscribe to a different market
-            let needs_subscription = if let Some(prev_market) = &self.current_streaming_market {
-                let different = prev_market != market_id;
-                info!("Previous market: {prev_market}, Current market: {market_id}, Needs subscription: {different}");
-                different
-            } else {
-                info!("No previous streaming market, subscribing to {market_id}");
-                true
-            };
+            // Check if we need to add this market to the subscription
+            let needs_subscription = !self.subscribed_markets.contains(market_id);
+            info!("Market {market_id}: needs_subscription={}, current_set={:?}",
+                  needs_subscription, self.subscribed_markets);
 
-            // Subscribe to the market if needed
             if needs_subscription {
+                info!("Adding market {market_id} to subscription set");
+
+                // If we're at the limit, remove the oldest market before adding the new one
+                if self.subscribed_markets.len() >= self.max_subscribed_markets {
+                    // For simplicity, just remove a random market (in practice, we'd track order)
+                    if let Some(oldest_market) = self.subscribed_markets.iter().next().cloned() {
+                        info!("Removing oldest market {oldest_market} to stay within limit");
+                        self.subscribed_markets.remove(&oldest_market);
+                    }
+                }
+
+                // Add the market to our subscription set
+                self.subscribed_markets.insert(market_id.to_string());
+
+                // Subscribe to all markets in the set
                 if let Some(client) = &self.client {
-                    info!("Subscribing to market {market_id} via streaming client");
-                    if let Err(e) = client.subscribe_to_market(market_id.to_string(), 5).await {
-                        error!("Failed to subscribe to market stream for {market_id}: {e}");
-                        let error_msg = format!("Failed to subscribe to market stream: {e}");
+                    let market_list: Vec<String> = self.subscribed_markets.iter().cloned().collect();
+                    info!("Subscribing to {} markets: {:?}", market_list.len(), market_list);
+
+                    if let Err(e) = client.subscribe_to_markets(market_list.clone(), 5).await {
+                        error!("Failed to subscribe to markets: {e}");
+                        let error_msg = format!("Failed to subscribe to market streams: {e}");
                         let help_msg = self.get_streaming_error_help(&error_msg);
                         self.error_message = Some(format!("{error_msg} {help_msg}"));
                         self.streaming_connected = false;
                     } else {
-                        info!("Successfully subscribed to market {market_id}, waiting for data...");
-                        self.current_streaming_market = Some(market_id.to_string());
-                        self.status_message = format!("Streaming market {market_id}");
+                        info!("Successfully subscribed to {} markets", market_list.len());
+                        self.status_message = format!("🟢 Streaming {} markets: {}", market_list.len(),
+                                                    market_list.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
 
                         // Give streaming more time to populate initial data
                         tokio::time::sleep(Duration::from_millis(2000)).await;
@@ -478,8 +491,9 @@ impl App {
                 }
             } else {
                 // Already subscribed to this market, just wait a bit for fresh data
-                info!("Already subscribed to market {market_id}, waiting for fresh data");
-                self.status_message = format!("Refreshing market {market_id}");
+                info!("Market {market_id} already in subscription set, waiting for fresh data");
+                self.status_message = format!("🔄 Already streaming {} ({} total markets)",
+                                            market_id, self.subscribed_markets.len());
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
 
@@ -1097,10 +1111,18 @@ impl App {
             return;
         }
 
-        let Some(market_id) = &self.current_streaming_market else {
-            debug!("No current streaming market set - skipping update");
+        // Get the currently selected market from the market browser
+        let Some(market_idx) = self.selected_market else {
+            debug!("No market selected - skipping streaming update");
             return;
         };
+
+        let Some(market) = self.markets.get(market_idx) else {
+            debug!("Selected market index {} out of bounds - skipping update", market_idx);
+            return;
+        };
+
+        let market_id = &market.id;
 
         debug!("Updating orderbook from streaming for market {market_id}");
 
@@ -1126,7 +1148,20 @@ impl App {
         // Update diagnostics data
         self.diagnostics_total_markets = orderbooks.len();
         self.diagnostics_total_runners = orderbooks.values().map(|m| m.len()).sum();
-        self.diagnostics_subscribed_market = self.current_streaming_market.clone();
+        self.diagnostics_subscribed_market = if self.subscribed_markets.is_empty() {
+            None
+        } else {
+            // Show the count and first few market IDs
+            let markets_list: Vec<String> = self.subscribed_markets.iter().cloned().collect();
+            if markets_list.len() <= 3 {
+                Some(markets_list.join(", "))
+            } else {
+                Some(format!("{} markets: {} ... and {} more",
+                           markets_list.len(),
+                           markets_list[..2].join(", "),
+                           markets_list.len() - 2))
+            }
+        };
         self.diagnostics_last_callback = Some(Instant::now());
 
         for (mk, runners) in orderbooks.iter() {
@@ -1233,7 +1268,7 @@ impl App {
             if self.streaming_connected && !actual_connected {
                 warn!("Streaming connection lost - attempting to reconnect");
                 self.streaming_connected = false;
-                self.current_streaming_market = None;
+                self.subscribed_markets.clear();
                 self.status_message = "Streaming connection lost - reconnecting...".to_string();
 
                 // Try to restart streaming
@@ -1491,7 +1526,7 @@ fn render_order_book(f: &mut Frame, area: Rect, app: &App) {
     let title = if let Some(market_idx) = app.selected_market {
         if let Some(market) = app.markets.get(market_idx) {
             let streaming_indicator =
-                if app.streaming_connected && app.current_streaming_market.is_some() {
+                if app.streaming_connected && app.subscribed_markets.contains(&market.id) {
                     if let Some(last_update) = app.last_streaming_update {
                         let elapsed = last_update.elapsed();
                         if elapsed.as_secs() < 2 {
@@ -2105,7 +2140,7 @@ fn render_diagnostics_panel(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("Status: ", Style::default().fg(Color::Cyan)),
             Span::raw(streaming_status),
             Span::raw("  |  "),
-            Span::styled("Market: ", Style::default().fg(Color::Cyan)),
+            Span::styled("Subscribed: ", Style::default().fg(Color::Cyan)),
             Span::raw(subscribed_market),
         ]),
         Line::from(vec![

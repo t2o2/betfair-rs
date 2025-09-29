@@ -200,6 +200,15 @@ impl BetfairClient {
         streaming.subscribe_to_market(market_id, levels).await
     }
 
+    /// Subscribe to multiple markets for streaming updates (recommended for multiple markets)
+    pub async fn subscribe_to_markets(&self, market_ids: Vec<String>, levels: usize) -> Result<()> {
+        let streaming = self.streaming_client.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Streaming client not initialized. Call login() first.")
+        })?;
+
+        streaming.subscribe_to_markets(market_ids, levels).await
+    }
+
     /// Unsubscribe from a market
     pub async fn unsubscribe_from_market(&self, market_id: String) -> Result<()> {
         let streaming = self.streaming_client.as_ref().ok_or_else(|| {
