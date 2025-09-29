@@ -68,7 +68,10 @@ impl RestClient {
                     headers.insert("X-Application", api_key.parse()?);
                     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse()?);
 
-                    let client = Client::builder().identity(identity).build()?;
+                    let client = Client::builder()
+                        .use_rustls_tls()
+                        .identity(identity)
+                        .build()?;
                     let form = [
                         ("username", username.as_str()),
                         ("password", password.as_str()),
