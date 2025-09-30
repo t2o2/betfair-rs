@@ -1,5 +1,11 @@
 # betfair-rs
 
+[![Unit Tests](https://github.com/t2o2/betfair-rs/actions/workflows/unit_tests.yml/badge.svg)](https://github.com/t2o2/betfair-rs/actions/workflows/unit_tests.yml)
+[![Release](https://github.com/t2o2/betfair-rs/actions/workflows/release.yml/badge.svg)](https://github.com/t2o2/betfair-rs/actions/workflows/release.yml)
+[![Crates.io](https://img.shields.io/crates/v/betfair-rs.svg)](https://crates.io/crates/betfair-rs)
+[![Documentation](https://docs.rs/betfair-rs/badge.svg)](https://docs.rs/betfair-rs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Rust library for interacting with the Betfair Exchange API, providing trading capabilities, real-time market data streaming, and order management.
 
 ## Features
