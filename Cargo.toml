@@ -1,6 +1,6 @@
 [package]
 name = "betfair-rs"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Chuan Bai"]
 description = "A high-performance Rust library for the Betfair Exchange API with real-time streaming, order management, and interactive terminal dashboard"
