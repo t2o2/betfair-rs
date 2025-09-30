@@ -222,7 +222,7 @@ impl StreamingClient {
             // Connect to streaming service
             if let Err(e) = streamer.connect_betfair_tls_stream().await {
                 error!("Failed to connect to streaming: {}", e);
-                let _ = ready_tx.send(Err(anyhow::anyhow!("Connection failed: {}", e)));
+                let _ = ready_tx.send(Err(anyhow::anyhow!("Connection failed: {e}")));
                 return;
             }
 

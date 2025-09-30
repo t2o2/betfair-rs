@@ -107,7 +107,7 @@ impl BetfairStreamer {
         let tls_stream = connector
             .connect(domain, tcp_stream)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to establish TLS connection: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to establish TLS connection: {e}"))?;
 
         let (reader, mut writer) = tokio::io::split(tls_stream);
 

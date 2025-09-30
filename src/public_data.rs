@@ -69,9 +69,7 @@ impl PublicDataClient {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow::anyhow!(
-                "Failed to fetch sports: HTTP {} - {}",
-                status,
-                error_text
+                "Failed to fetch sports: HTTP {status} - {error_text}"
             ));
         }
 

@@ -16,10 +16,10 @@ const ACCOUNT_URL: &str = "https://api.betfair.com/exchange/account/json-rpc/v1"
 
 fn load_pem_identity(pem_path: &str) -> Result<reqwest::Identity> {
     let pem_contents = std::fs::read(pem_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read PEM file {}: {}", pem_path, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read PEM file {pem_path}: {e}"))?;
 
     reqwest::Identity::from_pem(&pem_contents)
-        .map_err(|e| anyhow::anyhow!("Failed to parse PEM identity: {}", e))
+        .map_err(|e| anyhow::anyhow!("Failed to parse PEM identity: {e}"))
 }
 
 /// REST API client for all Betfair operations
@@ -166,9 +166,7 @@ impl RestClient {
         if !status.is_empty() && status.to_uppercase() != "SUCCESS" {
             let error_msg = self.get_error_message(&response, &status);
             return Err(anyhow::anyhow!(
-                "Interactive login {}: {}",
-                status,
-                error_msg
+                "Interactive login {status}: {error_msg}"
             ));
         }
 
@@ -285,9 +283,7 @@ impl RestClient {
 
                     if !status.is_success() {
                         return Err(anyhow::anyhow!(
-                            "API request failed with status {}: {}",
-                            status,
-                            response_text
+                            "API request failed with status {status}: {response_text}"
                         ));
                     }
 
