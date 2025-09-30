@@ -1,0 +1,107 @@
+name: Release to crates.io
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-and-publish:
+    name: Validate and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version $VERSION (tag: $TAG)"
+
+      - name: Validate version matches Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          TAG_VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            echo "Please ensure the tag matches the version in Cargo.toml"
+            exit 1
+          fi
+          echo "✓ Version validation passed: $CARGO_VERSION"
+
+      - name: Run tests
+        run: |
+          echo "Running test suite..."
+          cargo test --all-features --verbose
+          echo "✓ All tests passed"
+
+      - name: Run clippy
+        run: |
+          echo "Running clippy linter..."
+          cargo clippy -- -D warnings
+          echo "✓ Clippy checks passed"
+
+      - name: Build release
+        run: |
+          echo "Building release version..."
+          cargo build --release --verbose
+          echo "✓ Release build successful"
+
+      - name: Check package
+        run: |
+          echo "Checking package configuration..."
+          cargo package --list
+          echo "✓ Package check passed"
+
+      - name: Dry run publish
+        run: |
+          echo "Performing dry-run publish to crates.io..."
+          cargo publish --dry-run
+          echo "✓ Dry-run successful"
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          echo "Publishing to crates.io..."
+          cargo publish --token $CARGO_REGISTRY_TOKEN
+          echo "✓ Successfully published version ${{ steps.get_version.outputs.VERSION }} to crates.io"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.get_version.outputs.TAG }}
+          body: |
+            ## betfair-rs ${{ steps.get_version.outputs.VERSION }}
+
+            Published to [crates.io](https://crates.io/crates/betfair-rs/${{ steps.get_version.outputs.VERSION }})
+
+            ### Installation
+            ```toml
+            [dependencies]
+            betfair-rs = "${{ steps.get_version.outputs.VERSION }}"
+            ```
+
+            ### Documentation
+            - [API Documentation](https://docs.rs/betfair-rs/${{ steps.get_version.outputs.VERSION }})
+            - [Repository](https://github.com/t2o2/betfair-rs)
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
