@@ -1,4 +1,5 @@
 use crate::dto::streaming::UnmatchedOrder;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -11,10 +12,10 @@ pub struct OrderCache {
 #[derive(Debug, Clone)]
 pub struct RunnerOrders {
     pub selection_id: u64,
-    pub handicap: Option<f64>,
+    pub handicap: Option<Decimal>,
     pub orders: HashMap<String, UnmatchedOrder>,
-    pub matched_backs: HashMap<String, f64>,
-    pub matched_lays: HashMap<String, f64>,
+    pub matched_backs: HashMap<String, Decimal>,
+    pub matched_lays: HashMap<String, Decimal>,
 }
 
 impl OrderCache {
@@ -70,7 +71,7 @@ impl RunnerOrders {
         }
     }
 
-    pub fn set_handicap(&mut self, handicap: Option<f64>) {
+    pub fn set_handicap(&mut self, handicap: Option<Decimal>) {
         self.handicap = handicap;
     }
 
@@ -89,12 +90,12 @@ impl RunnerOrders {
         }
     }
 
-    pub fn update_matched_backs(&mut self, matched_backs: Vec<Vec<f64>>) {
+    pub fn update_matched_backs(&mut self, matched_backs: Vec<Vec<Decimal>>) {
         for entry in matched_backs {
             if entry.len() >= 2 {
                 let price = entry[0].to_string();
                 let size = entry[1];
-                if size == 0.0 {
+                if size.is_zero() {
                     self.matched_backs.remove(&price);
                 } else {
                     self.matched_backs.insert(price, size);
@@ -103,12 +104,12 @@ impl RunnerOrders {
         }
     }
 
-    pub fn update_matched_lays(&mut self, matched_lays: Vec<Vec<f64>>) {
+    pub fn update_matched_lays(&mut self, matched_lays: Vec<Vec<Decimal>>) {
         for entry in matched_lays {
             if entry.len() >= 2 {
                 let price = entry[0].to_string();
                 let size = entry[1];
-                if size == 0.0 {
+                if size.is_zero() {
                     self.matched_lays.remove(&price);
                 } else {
                     self.matched_lays.insert(price, size);
@@ -129,11 +130,11 @@ impl RunnerOrders {
         self.orders.get(bet_id)
     }
 
-    pub fn get_total_back_matched(&self) -> f64 {
+    pub fn get_total_back_matched(&self) -> Decimal {
         self.matched_backs.values().sum()
     }
 
-    pub fn get_total_lay_matched(&self) -> f64 {
+    pub fn get_total_lay_matched(&self) -> Decimal {
         self.matched_lays.values().sum()
     }
 }
@@ -141,8 +142,9 @@ impl RunnerOrders {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
-    fn create_test_order(id: &str, price: f64, size: f64, status: &str) -> UnmatchedOrder {
+    fn create_test_order(id: &str, price: Decimal, size: Decimal, status: &str) -> UnmatchedOrder {
         UnmatchedOrder {
             id: id.to_string(),
             p: price,
@@ -191,7 +193,7 @@ mod tests {
     #[test]
     fn test_update_order() {
         let mut runner = RunnerOrders::new(12345);
-        let order = create_test_order("bet1", 2.0, 10.0, "E");
+        let order = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
 
         runner.update_order(order.clone());
         assert_eq!(runner.orders.len(), 1);
@@ -201,8 +203,8 @@ mod tests {
     #[test]
     fn test_remove_completed_order() {
         let mut runner = RunnerOrders::new(12345);
-        let order1 = create_test_order("bet1", 2.0, 10.0, "E");
-        let order2 = create_test_order("bet1", 2.0, 10.0, "EC");
+        let order1 = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
+        let order2 = create_test_order("bet1", dec!(2.0), dec!(10.0), "EC");
 
         runner.update_order(order1);
         assert_eq!(runner.orders.len(), 1);
@@ -214,8 +216,8 @@ mod tests {
     #[test]
     fn test_apply_full_image() {
         let mut runner = RunnerOrders::new(12345);
-        let order1 = create_test_order("bet1", 2.0, 10.0, "E");
-        let order2 = create_test_order("bet2", 3.0, 20.0, "E");
+        let order1 = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
+        let order2 = create_test_order("bet2", dec!(3.0), dec!(20.0), "E");
 
         runner.update_order(order1.clone());
         assert_eq!(runner.orders.len(), 1);
@@ -228,20 +230,28 @@ mod tests {
     fn test_update_matched_backs() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![2.0, 50.0], vec![2.5, 100.0]]);
+        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
         assert_eq!(runner.matched_backs.len(), 2);
-        assert_eq!(*runner.matched_backs.get("2").unwrap(), 50.0);
-        assert_eq!(*runner.matched_backs.get("2.5").unwrap(), 100.0);
+
+        let keys: Vec<String> = runner.matched_backs.keys().cloned().collect();
+        assert!(keys.contains(&"2".to_string()) || keys.contains(&"2.0".to_string()),
+                "Expected key '2' or '2.0', got: {keys:?}");
+
+        let price_key = dec!(2.0).to_string();
+        assert_eq!(*runner.matched_backs.get(&price_key).unwrap(), dec!(50.0));
+
+        let price_key_2 = dec!(2.5).to_string();
+        assert_eq!(*runner.matched_backs.get(&price_key_2).unwrap(), dec!(100.0));
     }
 
     #[test]
     fn test_remove_matched_backs_with_zero() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![2.0, 50.0], vec![2.5, 100.0]]);
+        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
         assert_eq!(runner.matched_backs.len(), 2);
 
-        runner.update_matched_backs(vec![vec![2.0, 0.0]]);
+        runner.update_matched_backs(vec![vec![dec!(2.0), Decimal::ZERO]]);
         assert_eq!(runner.matched_backs.len(), 1);
         assert!(!runner.matched_backs.contains_key("2"));
     }
@@ -249,8 +259,8 @@ mod tests {
     #[test]
     fn test_get_all_orders() {
         let mut cache = OrderCache::new("1.123456".to_string());
-        let order1 = create_test_order("bet1", 2.0, 10.0, "E");
-        let order2 = create_test_order("bet2", 3.0, 20.0, "E");
+        let order1 = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
+        let order2 = create_test_order("bet2", dec!(3.0), dec!(20.0), "E");
 
         cache.get_runner_mut(12345).update_order(order1);
         cache.get_runner_mut(12346).update_order(order2);
@@ -262,8 +272,8 @@ mod tests {
     #[test]
     fn test_get_active_orders() {
         let mut cache = OrderCache::new("1.123456".to_string());
-        let order1 = create_test_order("bet1", 2.0, 10.0, "E");
-        let order2 = create_test_order("bet2", 3.0, 20.0, "EC");
+        let order1 = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
+        let order2 = create_test_order("bet2", dec!(3.0), dec!(20.0), "EC");
 
         cache.get_runner_mut(12345).update_order(order1);
         cache.get_runner_mut(12345).update_order(order2);
@@ -277,17 +287,17 @@ mod tests {
     fn test_get_total_matched() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![2.0, 50.0], vec![2.5, 100.0]]);
-        runner.update_matched_lays(vec![vec![3.0, 75.0]]);
+        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
+        runner.update_matched_lays(vec![vec![dec!(3.0), dec!(75.0)]]);
 
-        assert_eq!(runner.get_total_back_matched(), 150.0);
-        assert_eq!(runner.get_total_lay_matched(), 75.0);
+        assert_eq!(runner.get_total_back_matched(), dec!(150.0));
+        assert_eq!(runner.get_total_lay_matched(), dec!(75.0));
     }
 
     #[test]
     fn test_clear_cache() {
         let mut cache = OrderCache::new("1.123456".to_string());
-        let order = create_test_order("bet1", 2.0, 10.0, "E");
+        let order = create_test_order("bet1", dec!(2.0), dec!(10.0), "E");
 
         cache.get_runner_mut(12345).update_order(order);
         assert_eq!(cache.runners.len(), 1);

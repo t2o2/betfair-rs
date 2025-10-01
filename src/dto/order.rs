@@ -2,6 +2,7 @@ use super::common::{
     BetOutcome, OrderStatus, OrderType, PersistenceType, PriceSize, Side, TimeInForce, TimeRange,
 };
 use super::market::MarketVersion;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 // Simple order structure for placing orders
@@ -12,7 +13,8 @@ pub struct Order {
     pub side: Side,
     pub order_type: OrderType,
     pub limit_order: Option<LimitOrder>,
-    pub handicap: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub handicap: Decimal,
 }
 
 impl Order {
@@ -40,13 +42,20 @@ pub struct OrderStatusResponse {
     pub order_status: String,
     pub placed_date: Option<String>,
     pub matched_date: Option<String>,
-    pub average_price_matched: Option<f64>,
-    pub size_matched: Option<f64>,
-    pub size_remaining: Option<f64>,
-    pub size_lapsed: Option<f64>,
-    pub size_cancelled: Option<f64>,
-    pub size_voided: Option<f64>,
-    pub profit: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub average_price_matched: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_matched: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_remaining: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_lapsed: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_cancelled: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_voided: Option<Decimal>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub profit: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +79,8 @@ pub struct PlaceInstruction {
     pub order_type: OrderType,
     pub selection_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub handicap: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub handicap: Option<Decimal>,
     pub side: Side,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_order: Option<LimitOrder>,
@@ -85,30 +95,37 @@ pub struct PlaceInstruction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitOrder {
-    pub size: f64,
-    pub price: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub size: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub price: Decimal,
     pub persistence_type: PersistenceType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_in_force: Option<TimeInForce>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_fill_size: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub min_fill_size: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_target_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bet_target_size: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub bet_target_size: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitOnCloseOrder {
-    pub liability: f64,
-    pub price: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub liability: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub price: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketOnCloseOrder {
-    pub liability: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub liability: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,9 +155,11 @@ pub struct PlaceInstructionReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placed_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_price_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub average_price_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_matched: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +176,8 @@ pub struct CancelOrdersRequest {
 pub struct CancelInstruction {
     pub bet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_reduction: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_reduction: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,7 +201,8 @@ pub struct CancelInstructionReport {
     pub error_code: Option<String>,
     pub instruction: CancelInstruction,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_cancelled: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_cancelled: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancelled_date: Option<String>,
 }
@@ -225,10 +246,12 @@ pub struct CurrentOrderSummary {
     pub market_id: String,
     pub selection_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub handicap: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub handicap: Option<Decimal>,
     pub price_size: PriceSize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bsp_liability: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub bsp_liability: Option<Decimal>,
     pub side: Side,
     pub status: OrderStatus,
     pub persistence_type: PersistenceType,
@@ -238,17 +261,23 @@ pub struct CurrentOrderSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_price_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub average_price_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_remaining: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_remaining: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_lapsed: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_lapsed: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_cancelled: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_cancelled: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_voided: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_voided: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub regulator_auth_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -313,7 +342,8 @@ pub struct ClearedOrderSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub handicap: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub handicap: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -329,7 +359,8 @@ pub struct ClearedOrderSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_outcome: Option<BetOutcome>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub price_requested: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub price_requested: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settled_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -337,17 +368,22 @@ pub struct ClearedOrderSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub commission: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub commission: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub price_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub price_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price_reduced: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_settled: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_settled: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub profit: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub profit: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_cancelled: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_cancelled: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_order_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -372,5 +408,6 @@ pub struct ItemDescription {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_winners: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub each_way_divisor: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub each_way_divisor: Option<Decimal>,
 }

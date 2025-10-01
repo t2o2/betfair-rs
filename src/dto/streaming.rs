@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -41,9 +42,11 @@ pub struct MarketChange {
 pub struct RunnerChange {
     pub id: u64,
     #[serde(rename = "batb")]
-    pub available_to_back: Option<Vec<[f64; 3]>>,
+    #[serde(with = "super::decimal_serde::option_vec_array3")]
+    pub available_to_back: Option<Vec<[Decimal; 3]>>,
     #[serde(rename = "batl")]
-    pub available_to_lay: Option<Vec<[f64; 3]>>,
+    #[serde(with = "super::decimal_serde::option_vec_array3")]
+    pub available_to_lay: Option<Vec<[Decimal; 3]>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,15 +100,18 @@ pub struct OrderChange {
 pub struct OrderRunnerChange {
     pub id: u64,
     #[serde(rename = "hc")]
-    pub handicap: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub handicap: Option<Decimal>,
     #[serde(rename = "fullImage", default)]
     pub full_image: bool,
     #[serde(rename = "uo")]
     pub unmatched_orders: Option<Vec<UnmatchedOrder>>,
     #[serde(rename = "mb")]
-    pub matched_backs: Option<Vec<Vec<f64>>>,
+    #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
+    pub matched_backs: Option<Vec<Vec<Decimal>>>,
     #[serde(rename = "ml")]
-    pub matched_lays: Option<Vec<Vec<f64>>>,
+    #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
+    pub matched_lays: Option<Vec<Vec<Decimal>>>,
     #[serde(rename = "smc")]
     pub strategy_matches: Option<std::collections::HashMap<String, StrategyMatchChange>>,
 }
@@ -113,10 +119,13 @@ pub struct OrderRunnerChange {
 #[derive(Debug, Deserialize, Clone)]
 pub struct UnmatchedOrder {
     pub id: String,
-    pub p: f64,
-    pub s: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub p: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub s: Decimal,
     #[serde(default)]
-    pub bsp: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub bsp: Option<Decimal>,
     pub side: String,
     pub status: String,
     pub pt: String,
@@ -131,17 +140,23 @@ pub struct UnmatchedOrder {
     #[serde(default)]
     pub lsrc: Option<String>,
     #[serde(default)]
-    pub avp: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub avp: Option<Decimal>,
     #[serde(default)]
-    pub sm: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub sm: Option<Decimal>,
     #[serde(default)]
-    pub sr: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub sr: Option<Decimal>,
     #[serde(default)]
-    pub sl: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub sl: Option<Decimal>,
     #[serde(default)]
-    pub sc: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub sc: Option<Decimal>,
     #[serde(default)]
-    pub sv: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub sv: Option<Decimal>,
     #[serde(default)]
     pub rac: Option<String>,
     #[serde(default)]
@@ -155,9 +170,11 @@ pub struct UnmatchedOrder {
 #[derive(Debug, Deserialize, Clone)]
 pub struct StrategyMatchChange {
     #[serde(rename = "mb")]
-    pub matched_backs: Option<Vec<Vec<f64>>>,
+    #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
+    pub matched_backs: Option<Vec<Vec<Decimal>>>,
     #[serde(rename = "ml")]
-    pub matched_lays: Option<Vec<Vec<f64>>>,
+    #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
+    pub matched_lays: Option<Vec<Vec<Decimal>>>,
 }
 
 #[derive(Debug, Serialize, Clone)]

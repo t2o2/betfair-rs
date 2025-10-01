@@ -1,6 +1,7 @@
 use anyhow::Result;
 use betfair_rs::orderbook::{Orderbook, PriceLevel};
 use betfair_rs::{BetfairClient, Config, StreamingClient};
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -107,7 +108,7 @@ fn print_orderbook_summary(market_id: &str, market_books: &HashMap<String, Order
             println!(
                 "\nSpread: {:.2} | Mid: {:.2}",
                 spread,
-                (best_bid.price + best_ask.price) / 2.0
+                (best_bid.price + best_ask.price) / Decimal::from(2)
             );
         }
     }

@@ -1,4 +1,5 @@
 use betfair_rs::msg_model::{HeartbeatMessage, LoginResponse, MarketChangeMessage};
+use rust_decimal_macros::dec;
 use serde_json::json;
 
 #[test]
@@ -56,14 +57,14 @@ fn test_market_change_message_deserialization() {
     assert_eq!(runner_change.id, 58805);
 
     let batb = runner_change.available_to_back.as_ref().unwrap();
-    assert_eq!(batb[0][0], 0.0);
-    assert_eq!(batb[0][1], 4.3);
-    assert_eq!(batb[0][2], 943.24);
+    assert_eq!(batb[0][0], dec!(0.0));
+    assert_eq!(batb[0][1], dec!(4.3));
+    assert_eq!(batb[0][2], dec!(943.24));
 
     let batl = runner_change.available_to_lay.as_ref().unwrap();
-    assert_eq!(batl[0][0], 0.0);
-    assert_eq!(batl[0][1], 4.4);
-    assert_eq!(batl[0][2], 1000.0);
+    assert_eq!(batl[0][0], dec!(0.0));
+    assert_eq!(batl[0][1], dec!(4.4));
+    assert_eq!(batl[0][2], dec!(1000.0));
 }
 
 #[test]

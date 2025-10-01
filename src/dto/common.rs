@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -208,6 +209,8 @@ pub struct TimeRange {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PriceSize {
-    pub price: f64,
-    pub size: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub price: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub size: Decimal,
 }

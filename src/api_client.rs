@@ -5,6 +5,7 @@ use crate::rate_limiter::BetfairRateLimiter;
 use crate::retry::RetryPolicy;
 use anyhow::Result;
 use reqwest::{header::HeaderMap, Client};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tracing::debug;
@@ -409,16 +410,19 @@ impl RestClient {
         price: f64,
         size: f64,
     ) -> Result<PlaceOrdersResponse> {
+        let price_decimal = Decimal::from_f64(price).unwrap_or(Decimal::ZERO);
+        let size_decimal = Decimal::from_f64(size).unwrap_or(Decimal::ZERO);
+
         let request = PlaceOrdersRequest {
             market_id,
             instructions: vec![PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id,
-                handicap: Some(0.0),
+                handicap: Some(Decimal::ZERO),
                 side,
                 limit_order: Some(LimitOrder {
-                    size,
-                    price,
+                    size: size_decimal,
+                    price: price_decimal,
                     persistence_type: PersistenceType::Lapse,
                     time_in_force: None,
                     min_fill_size: None,
@@ -725,6 +729,8 @@ impl RestClient {
 mod tests {
     use super::*;
     use crate::config::BetfairConfig;
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
 
     fn create_test_config() -> Config {
         Config {
@@ -989,11 +995,11 @@ mod tests {
             instructions: vec![PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id: 12345,
-                handicap: Some(0.0),
+                handicap: Some(Decimal::ZERO),
                 side: Side::Back,
                 limit_order: Some(LimitOrder {
-                    size: 10.0,
-                    price: 2.0,
+                    size: dec!(10.0),
+                    price: dec!(2.0),
                     persistence_type: PersistenceType::Lapse,
                     time_in_force: None,
                     min_fill_size: None,
@@ -1015,11 +1021,11 @@ mod tests {
         assert_eq!(request.instructions[0].side, Side::Back);
         assert_eq!(
             request.instructions[0].limit_order.as_ref().unwrap().size,
-            10.0
+            dec!(10.0)
         );
         assert_eq!(
             request.instructions[0].limit_order.as_ref().unwrap().price,
-            2.0
+            dec!(2.0)
         );
     }
 
@@ -1029,14 +1035,14 @@ mod tests {
             market_id: "1.123456".to_string(),
             instructions: vec![CancelInstruction {
                 bet_id: "12345".to_string(),
-                size_reduction: Some(5.0),
+                size_reduction: Some(dec!(5.0)),
             }],
             customer_ref: None,
         };
 
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions[0].bet_id, "12345");
-        assert_eq!(request.instructions[0].size_reduction.unwrap(), 5.0);
+        assert_eq!(request.instructions[0].size_reduction.unwrap(), dec!(5.0));
     }
 
     #[test]

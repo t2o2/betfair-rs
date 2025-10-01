@@ -1,21 +1,28 @@
 use super::common::Wallet;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 // Legacy response format for account funds
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccountFundsResponse {
     #[serde(rename = "availableToBetBalance")]
-    pub available_to_bet_balance: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub available_to_bet_balance: Decimal,
     #[serde(rename = "exposure")]
-    pub exposure: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub exposure: Decimal,
     #[serde(rename = "retainedCommission")]
-    pub retained_commission: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub retained_commission: Decimal,
     #[serde(rename = "exposureLimit")]
-    pub exposure_limit: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub exposure_limit: Decimal,
     #[serde(rename = "discountRate")]
-    pub discount_rate: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub discount_rate: Decimal,
     #[serde(rename = "pointsBalance")]
-    pub points_balance: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub points_balance: Decimal,
     #[serde(rename = "wallet")]
     pub wallet: String,
 }
@@ -30,12 +37,17 @@ pub struct GetAccountFundsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAccountFundsResponse {
-    pub available_to_bet_balance: f64,
-    pub exposure: f64,
-    pub retained_commission: f64,
-    pub exposure_limit: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub available_to_bet_balance: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub exposure: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub retained_commission: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub exposure_limit: Decimal,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub discount_rate: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub discount_rate: Option<Decimal>,
     pub points_balance: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
@@ -61,7 +73,8 @@ pub struct GetAccountDetailsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub discount_rate: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub discount_rate: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub points_balance: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +86,8 @@ pub struct GetAccountDetailsResponse {
 pub struct TransferFundsRequest {
     pub from: Wallet,
     pub to: Wallet,
-    pub amount: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub amount: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

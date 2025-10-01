@@ -4,6 +4,8 @@ mod tests {
         LimitOrder, MarketFilter, OrderType, PersistenceType, PlaceInstruction, PlaceOrdersRequest,
         Side,
     };
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_market_filter_creation() {
@@ -25,11 +27,11 @@ mod tests {
             instructions: vec![PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id: 12345,
-                handicap: Some(0.0),
+                handicap: Some(Decimal::ZERO),
                 side: Side::Back,
                 limit_order: Some(LimitOrder {
-                    size: 10.0,
-                    price: 2.0,
+                    size: dec!(10.0),
+                    price: dec!(2.0),
                     persistence_type: PersistenceType::Lapse,
                     time_in_force: None,
                     min_fill_size: None,

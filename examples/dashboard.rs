@@ -28,6 +28,7 @@ use ratatui::{
     },
     Frame, Terminal,
 };
+use rust_decimal::{prelude::{FromPrimitive, ToPrimitive}, Decimal};
 use std::{
     collections::{HashMap, HashSet},
     io,
@@ -390,7 +391,7 @@ impl App {
                     name: m.market_name,
                     event_name: m.event.map(|e| e.name).unwrap_or_default(),
                     market_start_time: m.market_start_time,
-                    total_matched: m.total_matched.unwrap_or(0.0),
+                    total_matched: m.total_matched.and_then(|d| d.to_f64()).unwrap_or(0.0),
                     runners: m
                         .runners
                         .unwrap_or_default()
@@ -550,14 +551,14 @@ impl App {
                                     .bids
                                     .iter()
                                     .take(10)
-                                    .map(|level| (level.price, level.size))
+                                    .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
                                     .collect();
 
                                 let asks: Vec<(f64, f64)> = orderbook
                                     .asks
                                     .iter()
                                     .take(10)
-                                    .map(|level| (level.price, level.size))
+                                    .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
                                     .collect();
 
                                 let runner_name = runner_names
@@ -646,14 +647,14 @@ impl App {
                                 bids = back_prices
                                     .iter()
                                     .take(10)
-                                    .map(|p| (p.price, p.size))
+                                    .map(|p| (p.price.to_f64().unwrap_or(0.0), p.size.to_f64().unwrap_or(0.0)))
                                     .collect();
                             }
                             if let Some(lay_prices) = &ex.available_to_lay {
                                 asks = lay_prices
                                     .iter()
                                     .take(10)
-                                    .map(|p| (p.price, p.size))
+                                    .map(|p| (p.price.to_f64().unwrap_or(0.0), p.size.to_f64().unwrap_or(0.0)))
                                     .collect();
                             }
                         }
@@ -679,8 +680,8 @@ impl App {
                             runner_name,
                             bids,
                             asks,
-                            last_traded: runner.last_price_traded,
-                            total_matched: runner.total_matched.unwrap_or(0.0),
+                            last_traded: runner.last_price_traded.and_then(|d| d.to_f64()),
+                            total_matched: runner.total_matched.and_then(|d| d.to_f64()).unwrap_or(0.0),
                             is_streaming: false,
                             last_update: None,
                             prev_best_bid: None,
@@ -802,8 +803,8 @@ impl App {
             let funds = client
                 .get_account_funds(GetAccountFundsRequest { wallet: None })
                 .await?;
-            self.available_balance = funds.available_to_bet_balance;
-            self.exposure = funds.exposure;
+            self.available_balance = funds.available_to_bet_balance.to_f64().unwrap_or(0.0);
+            self.exposure = funds.exposure.to_f64().unwrap_or(0.0);
         }
         Ok(())
     }
@@ -893,9 +894,9 @@ impl App {
                         market_id: o.market_id,
                         selection_id: o.selection_id,
                         side: o.side,
-                        price: o.price_size.price,
-                        size: o.price_size.size,
-                        size_matched: o.size_matched.unwrap_or(0.0),
+                        price: o.price_size.price.to_f64().unwrap_or(0.0),
+                        size: o.price_size.size.to_f64().unwrap_or(0.0),
+                        size_matched: o.size_matched.and_then(|d| d.to_f64()).unwrap_or(0.0),
                         status: format!("{:?}", o.status),
                         placed_date: o.placed_date.unwrap_or_default(),
                         competition_name,
@@ -974,11 +975,11 @@ impl App {
             let instruction = PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id,
-                handicap: Some(0.0),
+                handicap: Some(Decimal::ZERO),
                 side: self.order_side.clone(),
                 limit_order: Some(LimitOrder {
-                    size,
-                    price,
+                    size: Decimal::from_f64(size).unwrap_or(Decimal::ZERO),
+                    price: Decimal::from_f64(price).unwrap_or(Decimal::ZERO),
                     persistence_type: PersistenceType::Lapse,
                     time_in_force: None,
                     min_fill_size: None,
@@ -1262,13 +1263,13 @@ impl App {
                 .bids
                 .iter()
                 .take(10)
-                .map(|level| (level.price, level.size))
+                .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
                 .collect();
             let new_asks: Vec<(f64, f64)> = streaming_ob
                 .asks
                 .iter()
                 .take(10)
-                .map(|level| (level.price, level.size))
+                .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
                 .collect();
 
             // Log current vs new data for comparison

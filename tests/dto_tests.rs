@@ -1,4 +1,6 @@
 use betfair_rs::dto::*;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_json::{from_value, json, to_value};
 
 #[test]
@@ -62,11 +64,11 @@ fn test_place_instruction_serialization() {
     let instruction = PlaceInstruction {
         order_type: OrderType::Limit,
         selection_id: 12345,
-        handicap: Some(0.0),
+        handicap: Some(Decimal::ZERO),
         side: Side::Back,
         limit_order: Some(LimitOrder {
-            size: 10.0,
-            price: 2.0,
+            size: dec!(10.0),
+            price: dec!(2.0),
             persistence_type: PersistenceType::Lapse,
             time_in_force: None,
             min_fill_size: None,
@@ -99,7 +101,10 @@ fn test_place_instruction_deserialization() {
         "limitOrder": {
             "size": 10.0,
             "price": 2.0,
-            "persistenceType": "LAPSE"
+            "persistenceType": "LAPSE",
+            "minFillSize": null,
+            "betTargetType": null,
+            "betTargetSize": null
         },
         "customerOrderRef": "ref123"
     });
@@ -107,12 +112,12 @@ fn test_place_instruction_deserialization() {
     let instruction: PlaceInstruction = from_value(json).unwrap();
     assert_eq!(instruction.order_type, OrderType::Limit);
     assert_eq!(instruction.selection_id, 12345);
-    assert_eq!(instruction.handicap, Some(0.0));
+    assert_eq!(instruction.handicap, Some(Decimal::ZERO));
     assert_eq!(instruction.side, Side::Back);
     assert!(instruction.limit_order.is_some());
     let limit_order = instruction.limit_order.unwrap();
-    assert_eq!(limit_order.size, 10.0);
-    assert_eq!(limit_order.price, 2.0);
+    assert_eq!(limit_order.size, dec!(10.0));
+    assert_eq!(limit_order.price, dec!(2.0));
     assert_eq!(limit_order.persistence_type, PersistenceType::Lapse);
     assert_eq!(instruction.customer_order_ref, Some("ref123".to_string()));
 }
@@ -121,32 +126,32 @@ fn test_place_instruction_deserialization() {
 fn test_runner_serialization() {
     let runner = Runner {
         selection_id: 12345,
-        handicap: 0.0,
+        handicap: dec!(0.0),
         status: RunnerStatus::Active,
-        adjustment_factor: Some(1.0),
-        last_price_traded: Some(2.5),
-        total_matched: Some(1000.0),
+        adjustment_factor: Some(dec!(1.0)),
+        last_price_traded: Some(dec!(2.5)),
+        total_matched: Some(dec!(1000.0)),
         removal_date: None,
         sp: None,
         ex: Some(ExchangePrices {
             available_to_back: Some(vec![
                 PriceSize {
-                    price: 2.4,
-                    size: 100.0,
+                    price: dec!(2.4),
+                    size: dec!(100.0),
                 },
                 PriceSize {
-                    price: 2.3,
-                    size: 200.0,
+                    price: dec!(2.3),
+                    size: dec!(200.0),
                 },
             ]),
             available_to_lay: Some(vec![
                 PriceSize {
-                    price: 2.5,
-                    size: 150.0,
+                    price: dec!(2.5),
+                    size: dec!(150.0),
                 },
                 PriceSize {
-                    price: 2.6,
-                    size: 250.0,
+                    price: dec!(2.6),
+                    size: dec!(250.0),
                 },
             ]),
             traded_volume: None,
@@ -190,11 +195,11 @@ fn test_runner_deserialization() {
 
     let runner: Runner = from_value(json).unwrap();
     assert_eq!(runner.selection_id, 12345);
-    assert_eq!(runner.handicap, 0.0);
+    assert_eq!(runner.handicap, Decimal::ZERO);
     assert!(matches!(runner.status, RunnerStatus::Active));
-    assert_eq!(runner.adjustment_factor, Some(1.0));
-    assert_eq!(runner.last_price_traded, Some(2.5));
-    assert_eq!(runner.total_matched, Some(1000.0));
+    assert_eq!(runner.adjustment_factor, Some(dec!(1.0)));
+    assert_eq!(runner.last_price_traded, Some(dec!(2.5)));
+    assert_eq!(runner.total_matched, Some(dec!(1000.0)));
     assert!(runner.ex.is_some());
     let ex = runner.ex.unwrap();
     assert_eq!(ex.available_to_back.unwrap().len(), 2);
@@ -215,8 +220,8 @@ fn test_market_book_serialization() {
         number_of_runners: Some(3),
         number_of_active_runners: Some(3),
         last_match_time: None,
-        total_matched: Some(1000.0),
-        total_available: Some(5000.0),
+        total_matched: Some(dec!(1000.0)),
+        total_available: Some(dec!(5000.0)),
         cross_matching: Some(true),
         runners_voidable: Some(false),
         version: Some(123456789),
@@ -277,8 +282,8 @@ fn test_market_book_deserialization() {
     assert_eq!(market_book.number_of_winners, Some(1));
     assert_eq!(market_book.number_of_runners, Some(3));
     assert_eq!(market_book.number_of_active_runners, Some(3));
-    assert_eq!(market_book.total_matched, Some(1000.0));
-    assert_eq!(market_book.total_available, Some(5000.0));
+    assert_eq!(market_book.total_matched, Some(dec!(1000.0)));
+    assert_eq!(market_book.total_available, Some(dec!(5000.0)));
     assert_eq!(market_book.cross_matching, Some(true));
     assert_eq!(market_book.runners_voidable, Some(false));
     assert_eq!(market_book.version, Some(123456789));
@@ -291,24 +296,24 @@ fn test_current_order_summary_serialization() {
         bet_id: "123456789".to_string(),
         market_id: "1.123456".to_string(),
         selection_id: 12345,
-        handicap: Some(0.0),
+        handicap: Some(Decimal::ZERO),
         price_size: PriceSize {
-            price: 2.0,
-            size: 10.0,
+            price: dec!(2.0),
+            size: dec!(10.0),
         },
-        bsp_liability: Some(0.0),
+        bsp_liability: Some(Decimal::ZERO),
         side: Side::Back,
         status: OrderStatus::Executable,
         persistence_type: PersistenceType::Lapse,
         order_type: OrderType::Limit,
         placed_date: Some("2024-01-01T00:00:00.000Z".to_string()),
         matched_date: Some("2024-01-01T00:01:00.000Z".to_string()),
-        average_price_matched: Some(2.0),
-        size_matched: Some(10.0),
-        size_remaining: Some(0.0),
-        size_lapsed: Some(0.0),
-        size_cancelled: Some(0.0),
-        size_voided: Some(0.0),
+        average_price_matched: Some(dec!(2.0)),
+        size_matched: Some(dec!(10.0)),
+        size_remaining: Some(Decimal::ZERO),
+        size_lapsed: Some(Decimal::ZERO),
+        size_cancelled: Some(Decimal::ZERO),
+        size_voided: Some(Decimal::ZERO),
         regulator_auth_code: None,
         regulator_code: None,
         customer_order_ref: Some("ref123".to_string()),
@@ -333,7 +338,7 @@ fn test_current_order_summary_serialization() {
 fn test_cancel_instruction_serialization() {
     let instruction = CancelInstruction {
         bet_id: "123456789".to_string(),
-        size_reduction: Some(5.0),
+        size_reduction: Some(dec!(5.0)),
     };
 
     let json = to_value(&instruction).unwrap();
@@ -350,18 +355,18 @@ fn test_cancel_instruction_deserialization() {
 
     let instruction: CancelInstruction = from_value(json).unwrap();
     assert_eq!(instruction.bet_id, "123456789");
-    assert_eq!(instruction.size_reduction, Some(5.0));
+    assert_eq!(instruction.size_reduction, Some(dec!(5.0)));
 }
 
 #[test]
 fn test_account_funds_response_serialization() {
     let funds = AccountFundsResponse {
-        available_to_bet_balance: 1000.0,
-        exposure: -50.0,
-        retained_commission: 5.0,
-        exposure_limit: -10000.0,
-        discount_rate: 2.0,
-        points_balance: 100.0,
+        available_to_bet_balance: dec!(1000.0),
+        exposure: dec!(-50.0),
+        retained_commission: dec!(5.0),
+        exposure_limit: dec!(-10000.0),
+        discount_rate: dec!(2.0),
+        points_balance: dec!(100.0),
         wallet: "UK".to_string(),
     };
 

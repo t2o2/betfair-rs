@@ -290,6 +290,8 @@ mod tests {
     use super::*;
     use crate::config::BetfairConfig;
     use crate::dto::{LimitOrder, OrderType, PersistenceType, PlaceInstruction, Side};
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
 
     fn create_test_config() -> Config {
         Config {
@@ -385,11 +387,11 @@ mod tests {
             instructions: vec![PlaceInstruction {
                 order_type: OrderType::Limit,
                 selection_id: 12345,
-                handicap: Some(0.0),
+                handicap: Some(Decimal::ZERO),
                 side: Side::Back,
                 limit_order: Some(LimitOrder {
-                    size: 10.0,
-                    price: 2.0,
+                    size: dec!(10.0),
+                    price: dec!(2.0),
                     persistence_type: PersistenceType::Lapse,
                     time_in_force: None,
                     min_fill_size: None,
@@ -420,11 +422,11 @@ mod tests {
                 PlaceInstruction {
                     order_type: OrderType::Limit,
                     selection_id: 12345,
-                    handicap: Some(0.0),
+                    handicap: Some(Decimal::ZERO),
                     side: Side::Back,
                     limit_order: Some(LimitOrder {
-                        size: 10.0,
-                        price: 2.0,
+                        size: dec!(10.0),
+                        price: dec!(2.0),
                         persistence_type: PersistenceType::Lapse,
                         time_in_force: None,
                         min_fill_size: None,
@@ -438,11 +440,11 @@ mod tests {
                 PlaceInstruction {
                     order_type: OrderType::Limit,
                     selection_id: 54321,
-                    handicap: Some(0.0),
+                    handicap: Some(Decimal::ZERO),
                     side: Side::Lay,
                     limit_order: Some(LimitOrder {
-                        size: 20.0,
-                        price: 3.0,
+                        size: dec!(20.0),
+                        price: dec!(3.0),
                         persistence_type: PersistenceType::Persist,
                         time_in_force: None,
                         min_fill_size: None,

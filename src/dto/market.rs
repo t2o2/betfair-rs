@@ -2,6 +2,7 @@ use super::common::{
     MarketProjection, MarketStatus, MatchProjection, OrderProjection, PriceData, PriceSize,
     RunnerStatus, TimeRange,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -81,7 +82,8 @@ pub struct MarketCatalogue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<MarketDescription>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub total_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runners: Option<Vec<RunnerCatalog>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,7 +107,8 @@ pub struct MarketDescription {
     pub turn_in_play_enabled: bool,
     pub market_type: String,
     pub regulator: String,
-    pub market_base_rate: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub market_base_rate: Decimal,
     pub discount_allowed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet: Option<String>,
@@ -114,7 +117,8 @@ pub struct MarketDescription {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rules_has_date: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub each_way_divisor: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub each_way_divisor: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clarifications: Option<String>,
 }
@@ -124,7 +128,8 @@ pub struct MarketDescription {
 pub struct RunnerCatalog {
     pub selection_id: i64,
     pub runner_name: String,
-    pub handicap: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub handicap: Decimal,
     pub sort_priority: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
@@ -208,7 +213,8 @@ pub struct ExBestOffersOverrides {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rollup_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rollup_liability_threshold: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub rollup_liability_threshold: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rollup_liability_factor: Option<i32>,
 }
@@ -237,9 +243,11 @@ pub struct MarketBook {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_match_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub total_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_available: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub total_available: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cross_matching: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,21 +271,26 @@ pub struct KeyLineDescription {
 #[serde(rename_all = "camelCase")]
 pub struct KeyLine {
     pub selection_id: i64,
-    pub handicap: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub handicap: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Runner {
     pub selection_id: i64,
-    pub handicap: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub handicap: Decimal,
     pub status: RunnerStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adjustment_factor: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub adjustment_factor: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_price_traded: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub last_price_traded: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub total_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub removal_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,15 +309,18 @@ pub struct Runner {
 #[serde(rename_all = "camelCase")]
 pub struct StartingPrices {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub near_price: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub near_price: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub far_price: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub far_price: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub back_stake_taken: Option<Vec<PriceSize>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lay_liability_taken: Option<Vec<PriceSize>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub actual_sp: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub actual_sp: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,22 +342,31 @@ pub struct MarketOrder {
     pub status: String,
     pub persistence_type: String,
     pub side: String,
-    pub price: f64,
-    pub size: f64,
-    pub bsp_liability: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub price: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub size: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub bsp_liability: Decimal,
     pub placed_date: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub avg_price_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub avg_price_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_matched: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_matched: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_remaining: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_remaining: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_lapsed: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_lapsed: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_cancelled: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_cancelled: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_voided: Option<f64>,
+    #[serde(with = "super::decimal_serde::option")]
+    pub size_voided: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub regulator_auth_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -354,8 +379,10 @@ pub struct Match {
     pub bet_id: String,
     pub match_id: String,
     pub side: String,
-    pub price: f64,
-    pub size: f64,
+    #[serde(with = "super::decimal_serde")]
+    pub price: Decimal,
+    #[serde(with = "super::decimal_serde")]
+    pub size: Decimal,
     pub match_date: String,
 }
 

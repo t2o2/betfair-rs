@@ -5,6 +5,7 @@ use crate::msg_model::OrderChangeMessage;
 use crate::orderbook::Orderbook;
 use crate::retry::{RetryConfig, RetryPolicy};
 use anyhow::Result;
+use rust_decimal::prelude::ToPrimitive;
 use rustls_pki_types::ServerName;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -499,7 +500,7 @@ impl BetfairStreamer {
                     if let Some(batb) = runner_change.available_to_back {
                         for level in batb {
                             if level.len() >= 3 {
-                                let level_index = level[0] as usize;
+                                let level_index = level[0].to_u64().unwrap_or(0) as usize;
                                 let price = level[1];
                                 let size = level[2];
                                 orderbook.add_bid(level_index, price, size);
@@ -511,7 +512,7 @@ impl BetfairStreamer {
                     if let Some(batl) = runner_change.available_to_lay {
                         for level in batl {
                             if level.len() >= 3 {
-                                let level_index = level[0] as usize;
+                                let level_index = level[0].to_u64().unwrap_or(0) as usize;
                                 let price = level[1];
                                 let size = level[2];
                                 orderbook.add_ask(level_index, price, size);

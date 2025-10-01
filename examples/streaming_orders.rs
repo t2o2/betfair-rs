@@ -1,6 +1,7 @@
 use anyhow::Result;
 use betfair_rs::dto::streaming::OrderFilter;
 use betfair_rs::{BetfairClient, Config, StreamingClient};
+use rust_decimal::Decimal;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
@@ -91,7 +92,7 @@ fn print_order_summary(market_id: &str, cache: &betfair_rs::order_cache::OrderCa
             println!("  {}", "-".repeat(75));
 
             for order in runner.orders.values() {
-                let matched = order.sm.unwrap_or(0.0);
+                let matched = order.sm.unwrap_or(Decimal::ZERO);
                 let status = match order.status.as_str() {
                     "E" => "Executable",
                     "EC" => "Exec Complete",
@@ -109,7 +110,7 @@ fn print_order_summary(market_id: &str, cache: &betfair_rs::order_cache::OrderCa
                 );
 
                 if let Some(remaining) = order.sr {
-                    if remaining > 0.0 {
+                    if remaining > Decimal::ZERO {
                         println!("    Remaining: {remaining:.2}");
                     }
                 }

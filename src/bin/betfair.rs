@@ -53,6 +53,7 @@ mod streaming {
     use anyhow::Result;
     use betfair_rs::orderbook::{Orderbook, PriceLevel};
     use betfair_rs::{BetfairClient, Config, StreamingClient};
+    use rust_decimal::Decimal;
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -161,10 +162,11 @@ mod streaming {
                 (orderbook.get_best_bid(), orderbook.get_best_ask())
             {
                 let spread = best_ask.price - best_bid.price;
+                let two = Decimal::from(2);
                 println!(
                     "\nSpread: {:.2} | Mid: {:.2}",
                     spread,
-                    (best_bid.price + best_ask.price) / 2.0
+                    (best_bid.price + best_ask.price) / two
                 );
             }
         }

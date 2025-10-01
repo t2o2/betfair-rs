@@ -1,6 +1,7 @@
 pub mod account;
 pub mod common;
 pub mod config;
+pub mod decimal_serde;
 pub mod market;
 pub mod misc;
 pub mod order;
