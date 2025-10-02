@@ -502,7 +502,7 @@ impl StreamingClient {
             .join(",");
 
         format!(
-            "{{\"op\": \"marketSubscription\", \"id\": {id}, \"marketFilter\": {{ \"marketIds\":[{market_ids_json}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\"], \"ladderLevels\": {levels}}}}}\r\n"
+            "{{\"op\": \"marketSubscription\", \"id\": {id}, \"marketFilter\": {{ \"marketIds\":[{market_ids_json}]}}, \"marketDataFilter\": {{ \"fields\": [\"EX_BEST_OFFERS\", \"EX_MARKET_DEF\"], \"ladderLevels\": {levels}}}}}\r\n"
         )
     }
 }
