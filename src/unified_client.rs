@@ -249,7 +249,10 @@ impl BetfairClient {
     /// Set a custom orderbook callback that will be called immediately when new data arrives
     pub fn set_orderbook_callback<F>(&mut self, callback: F) -> Result<()>
     where
-        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+        F: Fn(String, HashMap<String, Orderbook>, Option<crate::dto::MarketDefinition>)
+            + Send
+            + Sync
+            + 'static,
     {
         let streaming = self.streaming_client.as_mut().ok_or_else(|| {
             anyhow::anyhow!("Streaming client not initialized. Call login() first.")

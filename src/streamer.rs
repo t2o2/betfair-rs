@@ -1,4 +1,5 @@
 use crate::connection_state::{ConnectionManager, ConnectionState};
+use crate::dto::MarketDefinition;
 use crate::msg_model::HeartbeatMessage;
 use crate::msg_model::MarketChangeMessage;
 use crate::msg_model::OrderChangeMessage;
@@ -21,7 +22,8 @@ use tracing::{debug, error, info, warn};
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
 
-type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
+type OrderbookCallback =
+    Arc<dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static>;
 type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 pub struct BetfairStreamer {
@@ -37,6 +39,7 @@ pub struct BetfairStreamer {
     heartbeat_threshold: Duration,
     is_resubscribing: Arc<Mutex<bool>>,
     orderbooks: HashMap<String, HashMap<String, Orderbook>>,
+    market_definitions: HashMap<String, MarketDefinition>,
     connection_manager: ConnectionManager,
     _retry_policy: RetryPolicy,
 }
@@ -56,6 +59,7 @@ impl BetfairStreamer {
             heartbeat_threshold: Duration::from_secs(10),
             is_resubscribing: Arc::new(Mutex::new(false)),
             orderbooks: HashMap::new(),
+            market_definitions: HashMap::new(),
             connection_manager: ConnectionManager::new(),
             _retry_policy: RetryPolicy::new(RetryConfig {
                 max_attempts: 5,
@@ -68,7 +72,7 @@ impl BetfairStreamer {
 
     pub fn set_orderbook_callback<F>(&mut self, callback: F)
     where
-        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+        F: Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static,
     {
         self.orderbook_callback = Some(Arc::new(callback));
     }
@@ -481,6 +485,12 @@ impl BetfairStreamer {
             let market_id = market_change.id;
             info!("Processing market change for market {market_id}");
 
+            if let Some(ref market_def) = market_change.market_definition {
+                debug!("Market {market_id} has marketDefinition with status: {:?}, inPlay: {}",
+                    market_def.status, market_def.in_play);
+                self.market_definitions.insert(market_id.clone(), market_def.clone());
+            }
+
             let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_default();
 
             if let Some(runner_changes) = market_change.runner_changes {
@@ -545,9 +555,10 @@ impl BetfairStreamer {
                 );
                 let market_id_clone = market_id.clone();
                 let orderbooks_clone = market_orderbooks.clone();
+                let market_def_clone = self.market_definitions.get(&market_id).cloned();
                 let callback_clone = callback.clone();
                 tokio::spawn(async move {
-                    callback_clone(market_id_clone, orderbooks_clone);
+                    callback_clone(market_id_clone, orderbooks_clone, market_def_clone);
                 });
             } else {
                 warn!("No orderbook callback set for market {market_id} - data will not be propagated");

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::dto::streaming::{OrderChangeMessage, OrderFilter};
+use crate::dto::streaming::{MarketDefinition, OrderChangeMessage, OrderFilter};
 use crate::order_cache::OrderCache;
 use crate::orderbook::Orderbook;
 use crate::streamer::BetfairStreamer;
@@ -12,7 +12,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 /// Type alias for orderbook callback function
-type OrderbookCallback = Arc<dyn Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static>;
+type OrderbookCallback =
+    Arc<dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static>;
 type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 /// A non-blocking streaming client for Betfair market data
@@ -94,7 +95,7 @@ impl StreamingClient {
     /// Set a custom orderbook callback that will be called immediately when new data arrives
     pub fn set_orderbook_callback<F>(&mut self, callback: F)
     where
-        F: Fn(String, HashMap<String, Orderbook>) + Send + Sync + 'static,
+        F: Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static,
     {
         self.custom_orderbook_callback = Some(Arc::new(callback));
     }
@@ -147,8 +148,12 @@ impl StreamingClient {
             // Set up orderbook callback
             let orderbooks_ref = orderbooks.clone();
             let update_times_ref = last_update_times.clone();
-            streamer.set_orderbook_callback(move |market_id, runner_orderbooks| {
+            streamer.set_orderbook_callback(move |market_id, runner_orderbooks, market_definition| {
                 info!("Orderbook callback triggered for market {market_id} with {} runners", runner_orderbooks.len());
+
+                if let Some(ref market_def) = market_definition {
+                    debug!("Market {market_id} status: {:?}, inPlay: {}", market_def.status, market_def.in_play);
+                }
 
                 if let Ok(mut obs) = orderbooks_ref.write() {
                     obs.insert(market_id.clone(), runner_orderbooks.clone());
@@ -166,7 +171,7 @@ impl StreamingClient {
 
                 if let Some(ref callback) = custom_orderbook_callback {
                     debug!("Calling custom orderbook callback for market {market_id}");
-                    callback(market_id, runner_orderbooks);
+                    callback(market_id, runner_orderbooks, market_definition);
                 }
             });
 

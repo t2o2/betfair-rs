@@ -35,6 +35,22 @@ pub struct MarketChange {
     pub id: String,
     #[serde(rename = "rc")]
     pub runner_changes: Option<Vec<RunnerChange>>,
+    #[serde(rename = "marketDefinition")]
+    pub market_definition: Option<MarketDefinition>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MarketDefinition {
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "inPlay", default)]
+    pub in_play: bool,
+    #[serde(default)]
+    pub complete: bool,
+    #[serde(rename = "marketTime")]
+    pub market_time: Option<String>,
+    #[serde(rename = "numberOfActiveRunners")]
+    pub number_of_active_runners: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

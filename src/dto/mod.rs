@@ -15,8 +15,8 @@ pub use market::*;
 pub use order::*;
 // Selective exports from streaming to avoid conflicts
 pub use streaming::{
-    HeartbeatMessage, HeartbeatRequest, MarketChange, MarketChangeMessage, OrderChange,
-    OrderChangeMessage, OrderRunnerChange, RunnerChange, UnmatchedOrder,
+    HeartbeatMessage, HeartbeatRequest, MarketChange, MarketChangeMessage, MarketDefinition,
+    OrderChange, OrderChangeMessage, OrderRunnerChange, RunnerChange, UnmatchedOrder,
 };
 // Use fully qualified path for LoginResponse to avoid conflict
 pub use config::*;
