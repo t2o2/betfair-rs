@@ -78,6 +78,7 @@ pub struct PlaceOrdersRequest {
 pub struct PlaceInstruction {
     pub order_type: OrderType,
     pub selection_id: i64,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub handicap: Option<Decimal>,
@@ -102,11 +103,13 @@ pub struct LimitOrder {
     pub persistence_type: PersistenceType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_in_force: Option<TimeInForce>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub min_fill_size: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_target_type: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub bet_target_size: Option<Decimal>,
@@ -154,9 +157,11 @@ pub struct PlaceInstructionReport {
     pub bet_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placed_date: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub average_price_matched: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub size_matched: Option<Decimal>,
