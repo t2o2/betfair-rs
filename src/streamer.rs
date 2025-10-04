@@ -422,6 +422,12 @@ impl BetfairStreamer {
                         }
                         Some("HEARTBEAT") => {
                             debug!("OCM heartbeat received");
+                            // Parse as OrderChangeMessage to trigger callback for health monitoring
+                            if let Ok(order_change_message) =
+                                serde_json::from_str::<OrderChangeMessage>(&message.to_string())
+                            {
+                                self.parse_order_change_message(order_change_message);
+                            }
                         }
                         Some("UPDATE") => {
                             // Regular order updates
