@@ -278,7 +278,7 @@ impl StreamingClient {
                         };
 
                         let sub_msg = format!(
-                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true,\"heartbeatMs\":5000}}\r\n"
                         );
 
                         if let Err(e) = sender.send(sub_msg).await {
@@ -518,7 +518,7 @@ impl StreamingClient {
                     if should_subscribe {
                         info!("Resubscribing to order updates");
                         let sub_msg = format!(
-                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true,\"heartbeatMs\":5000}}\r\n"
                         );
                         if let Err(e) = message_sender.send(sub_msg).await {
                             error!("Failed to resubscribe to orders: {e}");
