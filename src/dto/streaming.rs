@@ -229,4 +229,6 @@ pub struct OrderSubscriptionMessage {
     pub order_filter: Option<OrderFilter>,
     #[serde(rename = "segmentationEnabled")]
     pub segmentation_enabled: bool,
+    #[serde(rename = "heartbeatMs", skip_serializing_if = "Option::is_none")]
+    pub heartbeat_ms: Option<i64>,
 }
