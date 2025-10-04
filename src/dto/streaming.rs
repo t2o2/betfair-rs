@@ -97,7 +97,7 @@ pub struct OrderChangeMessage {
     #[serde(rename = "clk")]
     pub clock: String,
     pub pt: i64,
-    #[serde(rename = "oc")]
+    #[serde(rename = "oc", default)]
     pub order_changes: Vec<OrderChange>,
 }
 

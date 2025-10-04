@@ -88,7 +88,7 @@ impl BetfairStreamer {
         self.connection_manager
             .set_state(ConnectionState::Connecting)
             .await;
-        info!("TLS connect starting");
+        info!("BETFAIR_RS_DEBUG: TLS connect starting - this is the NEW code with debug logging");
 
         let auth_msg = format!(
             "{{\"op\": \"authentication\",\"id\":1, \"appKey\": \"{}\", \"session\": \"{}\"}}\r\n",
@@ -133,24 +133,24 @@ impl BetfairStreamer {
         });
         // Spawn reader task
         tokio::spawn(async move {
-            info!("📖 WebSocket reader task started");
+            info!("BETFAIR_RS_DEBUG: WebSocket reader task started");
             let mut reader = tokio::io::BufReader::new(reader);
             let mut line = String::new();
             let mut message_count = 0;
 
             loop {
                 line.clear();
-                debug!("🔄 Waiting to read next line from WebSocket...");
+                debug!("BETFAIR_RS_DEBUG: Waiting to read next line from WebSocket");
                 match reader.read_line(&mut line).await {
                     Ok(0) => {
-                        warn!("📭 EOF reached on WebSocket (0 bytes read)");
+                        warn!("BETFAIR_RS_DEBUG: EOF reached on WebSocket - 0 bytes read");
                         break;
                     }
                     Ok(n) => {
                         message_count += 1;
-                        info!("📨 Read {n} bytes (message #{message_count})");
+                        info!("BETFAIR_RS_DEBUG: Read {n} bytes (message #{message_count})");
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
-                        info!("Raw message: {line}");
+                        info!("BETFAIR_RS_DEBUG: Raw message: {line}");
 
                         if let Err(e) = tx_read.send(line.clone()).await {
                             error!("Error sending message to main task: {e}");
@@ -163,7 +163,7 @@ impl BetfairStreamer {
                     }
                 }
             }
-            warn!("📖 WebSocket reader task ended (total messages: {message_count})");
+            warn!("BETFAIR_RS_DEBUG: WebSocket reader task ended (total messages: {message_count})");
         });
 
         // Send initial authentication message
