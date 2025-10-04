@@ -133,28 +133,37 @@ impl BetfairStreamer {
         });
         // Spawn reader task
         tokio::spawn(async move {
+            info!("📖 WebSocket reader task started");
             let mut reader = tokio::io::BufReader::new(reader);
             let mut line = String::new();
+            let mut message_count = 0;
 
             loop {
                 line.clear();
+                debug!("🔄 Waiting to read next line from WebSocket...");
                 match reader.read_line(&mut line).await {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
+                    Ok(0) => {
+                        warn!("📭 EOF reached on WebSocket (0 bytes read)");
+                        break;
+                    }
+                    Ok(n) => {
+                        message_count += 1;
+                        info!("📨 Read {n} bytes (message #{message_count})");
                         line = line.strip_suffix("\r\n").unwrap_or(&line).to_string();
-                        info!("Raw message: {}", line);
+                        info!("Raw message: {line}");
 
                         if let Err(e) = tx_read.send(line.clone()).await {
-                            error!("Error sending message to main task: {}", e);
+                            error!("Error sending message to main task: {e}");
                             break;
                         }
                     }
                     Err(e) => {
-                        error!("Error reading from stream: {}", e);
+                        error!("Error reading from stream: {e}");
                         break;
                     }
                 }
             }
+            warn!("📖 WebSocket reader task ended (total messages: {message_count})");
         });
 
         // Send initial authentication message
