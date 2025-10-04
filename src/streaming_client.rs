@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::connection_state::{ConnectionManager, ConnectionState};
 use crate::dto::streaming::{MarketDefinition, OrderChangeMessage, OrderFilter};
 use crate::order_cache::OrderCache;
 use crate::orderbook::Orderbook;
@@ -6,10 +7,10 @@ use crate::streamer::BetfairStreamer;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Type alias for orderbook callback function
 type OrderbookCallback =
@@ -28,6 +29,11 @@ pub struct StreamingClient {
     last_update_times: Arc<RwLock<HashMap<String, Instant>>>,
     custom_orderbook_callback: Option<OrderbookCallback>,
     custom_order_callback: Option<OrderUpdateCallback>,
+    connection_manager: ConnectionManager,
+    subscribed_markets: Arc<RwLock<HashMap<String, usize>>>,
+    subscribed_to_orders: Arc<RwLock<bool>>,
+    order_filter: Arc<RwLock<Option<OrderFilter>>>,
+    enable_reconnection: bool,
 }
 
 #[derive(Debug)]
@@ -53,6 +59,11 @@ impl StreamingClient {
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
             custom_orderbook_callback: None,
             custom_order_callback: None,
+            connection_manager: ConnectionManager::new(),
+            subscribed_markets: Arc::new(RwLock::new(HashMap::new())),
+            subscribed_to_orders: Arc::new(RwLock::new(false)),
+            order_filter: Arc::new(RwLock::new(None)),
+            enable_reconnection: true,
         }
     }
 
@@ -69,6 +80,11 @@ impl StreamingClient {
             last_update_times: Arc::new(RwLock::new(HashMap::new())),
             custom_orderbook_callback: None,
             custom_order_callback: None,
+            connection_manager: ConnectionManager::new(),
+            subscribed_markets: Arc::new(RwLock::new(HashMap::new())),
+            subscribed_to_orders: Arc::new(RwLock::new(false)),
+            order_filter: Arc::new(RwLock::new(None)),
+            enable_reconnection: true,
         }
     }
 
@@ -80,6 +96,21 @@ impl StreamingClient {
     /// Set or update the session token
     pub fn set_session_token(&mut self, token: String) {
         self.session_token = Some(token);
+    }
+
+    /// Enable or disable automatic reconnection
+    pub fn set_reconnection_enabled(&mut self, enabled: bool) {
+        self.enable_reconnection = enabled;
+    }
+
+    /// Get the current connection state
+    pub async fn get_connection_state(&self) -> ConnectionState {
+        self.connection_manager.get_state().await
+    }
+
+    /// Get the number of reconnection attempts
+    pub async fn get_reconnect_attempts(&self) -> u32 {
+        self.connection_manager.get_reconnect_attempts().await
     }
 
     /// Get a reference to the shared orderbooks
@@ -111,7 +142,7 @@ impl StreamingClient {
         self.orders.clone()
     }
 
-    /// Initialize and start the streaming client in a background task
+    /// Initialize and start the streaming client in a background task with reconnection support
     pub async fn start(&mut self) -> Result<()> {
         // Ensure we have a session token
         let session_token = self
@@ -134,21 +165,176 @@ impl StreamingClient {
         let last_update_times = self.last_update_times.clone();
         let custom_orderbook_callback = self.custom_orderbook_callback.clone();
         let custom_order_callback = self.custom_order_callback.clone();
+        let connection_manager = self.connection_manager.clone();
+        let subscribed_markets = self.subscribed_markets.clone();
+        let subscribed_to_orders = self.subscribed_to_orders.clone();
+        let order_filter = self.order_filter.clone();
+        let enable_reconnection = self.enable_reconnection;
 
-        // Create a oneshot channel to signal when ready
+        // Create a oneshot channel to signal when ready (only used once on first connection)
         let (ready_tx, ready_rx) = oneshot::channel();
+        let ready_tx = Arc::new(RwLock::new(Some(ready_tx)));
 
-        // Spawn the streaming task
+        // Create a shared message sender that will be updated on each connection
+        let active_message_sender = Arc::new(RwLock::new(None::<mpsc::Sender<String>>));
+        let active_message_sender_clone = active_message_sender.clone();
+
+        // Spawn command handler task that works across reconnections
+        let cmd_sender_ref = active_message_sender.clone();
+        let subscribed_markets_ref = subscribed_markets.clone();
+        let subscribed_to_orders_ref = subscribed_to_orders.clone();
+        let order_filter_ref = order_filter.clone();
+        let orderbooks_ref = orderbooks.clone();
+        let last_update_times_ref = last_update_times.clone();
+
+        tokio::spawn(async move {
+            while let Some(cmd) = cmd_rx.recv().await {
+                let sender = {
+                    if let Ok(guard) = cmd_sender_ref.read() {
+                        guard.clone()
+                    } else {
+                        None
+                    }
+                };
+
+                if sender.is_none() {
+                    warn!("No active message sender, command will be queued");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+
+                let sender = sender.unwrap();
+
+                match cmd {
+                    StreamingCommand::Subscribe(market_id, levels) => {
+                        info!("Processing subscription for market {market_id} with {levels} levels");
+
+                        if let Ok(mut markets) = subscribed_markets_ref.write() {
+                            markets.insert(market_id.clone(), levels);
+                        }
+
+                        if let Ok(mut obs) = orderbooks_ref.write() {
+                            obs.remove(&market_id);
+                        }
+                        if let Ok(mut times) = last_update_times_ref.write() {
+                            times.remove(&market_id);
+                        }
+
+                        let sub_msg = Self::create_market_subscription_message(&market_id, levels);
+                        if let Err(e) = sender.send(sub_msg).await {
+                            error!("Failed to send subscription: {e}");
+                        }
+                    }
+                    StreamingCommand::SubscribeBatch(market_ids, levels) => {
+                        info!("Processing batch subscription for {} markets", market_ids.len());
+
+                        if let Ok(mut markets) = subscribed_markets_ref.write() {
+                            for market_id in &market_ids {
+                                markets.insert(market_id.clone(), levels);
+                            }
+                        }
+
+                        if let Ok(mut obs) = orderbooks_ref.write() {
+                            for market_id in &market_ids {
+                                obs.remove(market_id);
+                            }
+                        }
+                        if let Ok(mut times) = last_update_times_ref.write() {
+                            for market_id in &market_ids {
+                                times.remove(market_id);
+                            }
+                        }
+
+                        let sub_msg = Self::create_batch_market_subscription_message(&market_ids, levels);
+                        if let Err(e) = sender.send(sub_msg).await {
+                            error!("Failed to send batch subscription: {e}");
+                        }
+                    }
+                    StreamingCommand::Unsubscribe(market_id) => {
+                        if let Ok(mut markets) = subscribed_markets_ref.write() {
+                            markets.remove(&market_id);
+                        }
+                        if let Ok(mut obs) = orderbooks_ref.write() {
+                            obs.remove(&market_id);
+                        }
+                        if let Ok(mut times) = last_update_times_ref.write() {
+                            times.remove(&market_id);
+                        }
+                    }
+                    StreamingCommand::SubscribeOrders(filter) => {
+                        info!("Processing order subscription");
+
+                        if let Ok(mut subscribed) = subscribed_to_orders_ref.write() {
+                            *subscribed = true;
+                        }
+                        if let Ok(mut filter_state) = order_filter_ref.write() {
+                            *filter_state = filter.clone();
+                        }
+
+                        let filter_json = if let Some(f) = filter {
+                            serde_json::to_string(&f).unwrap_or_else(|_| "{}".to_string())
+                        } else {
+                            "{}".to_string()
+                        };
+
+                        let sub_msg = format!(
+                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+                        );
+
+                        if let Err(e) = sender.send(sub_msg).await {
+                            error!("Failed to send order subscription: {e}");
+                        }
+                    }
+                    StreamingCommand::Stop => {
+                        info!("Stopping streaming client");
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Spawn the streaming task with reconnection loop
         let handle = tokio::spawn(async move {
-            // Create the streamer
-            let mut streamer = BetfairStreamer::new(api_key, session_token);
+            let mut first_start = true;
+            let mut reconnect_attempt = 0u32;
 
-            info!("Streaming client initialized");
+            loop {
+                if !first_start && enable_reconnection {
+                    connection_manager
+                        .set_state(ConnectionState::Reconnecting)
+                        .await;
+                    reconnect_attempt += 1;
 
-            // Set up orderbook callback
-            let orderbooks_ref = orderbooks.clone();
-            let update_times_ref = last_update_times.clone();
-            streamer.set_orderbook_callback(move |market_id, runner_orderbooks, market_definition| {
+                    if reconnect_attempt > 5 {
+                        error!("Max reconnection attempts exceeded");
+                        connection_manager
+                            .set_state(ConnectionState::Failed("Max reconnection attempts exceeded".to_string()))
+                            .await;
+                        break;
+                    }
+
+                    let delay = Duration::from_secs(2u64.pow(reconnect_attempt.min(5)));
+                    warn!("Attempting to reconnect (attempt {reconnect_attempt}), waiting {delay:?}...");
+                    tokio::time::sleep(delay).await;
+                } else if !first_start {
+                    warn!("Streaming disconnected and reconnection is disabled");
+                    break;
+                }
+
+                connection_manager
+                    .set_state(ConnectionState::Connecting)
+                    .await;
+
+                // Create the streamer
+                let mut streamer = BetfairStreamer::new(api_key.clone(), session_token.clone());
+
+                info!("Streaming client initialized");
+
+                // Set up orderbook callback
+                let orderbooks_ref = orderbooks.clone();
+                let update_times_ref = last_update_times.clone();
+                let callback_clone = custom_orderbook_callback.clone();
+                streamer.set_orderbook_callback(move |market_id, runner_orderbooks, market_definition| {
                 info!("Orderbook callback triggered for market {market_id} with {} runners", runner_orderbooks.len());
 
                 if let Some(ref market_def) = market_definition {
@@ -169,14 +355,15 @@ impl StreamingClient {
                     error!("Failed to acquire write lock on update times for market {market_id}");
                 }
 
-                if let Some(ref callback) = custom_orderbook_callback {
+                if let Some(ref callback) = callback_clone {
                     debug!("Calling custom orderbook callback for market {market_id}");
                     callback(market_id, runner_orderbooks, market_definition);
                 }
             });
 
-            let orders_ref = orders.clone();
-            streamer.set_orderupdate_callback(move |order_change_message| {
+                let orders_ref = orders.clone();
+                let order_callback_clone = custom_order_callback.clone();
+                streamer.set_orderupdate_callback(move |order_change_message| {
                 if let Ok(mut order_cache_map) = orders_ref.write() {
                     for order_change in &order_change_message.order_changes {
                         let market_id = &order_change.id;
@@ -219,154 +406,171 @@ impl StreamingClient {
                     }
                 }
 
-                if let Some(ref callback) = custom_order_callback {
+                if let Some(ref callback) = order_callback_clone {
                     callback(order_change_message);
                 }
             });
 
-            // Connect to streaming service
-            if let Err(e) = streamer.connect_betfair_tls_stream().await {
-                error!("Failed to connect to streaming: {}", e);
-                let _ = ready_tx.send(Err(anyhow::anyhow!("Connection failed: {e}")));
-                return;
-            }
-
-            info!("Connected to streaming service");
-
-            // Mark as connected
-            if let Ok(mut connected) = is_connected.write() {
-                *connected = true;
-            }
-
-            // Get the message sender for direct message sending
-            let message_sender = streamer
-                .get_message_sender()
-                .ok_or_else(|| anyhow::anyhow!("Message sender not available"));
-
-            let message_sender = match message_sender {
-                Ok(sender) => sender,
-                Err(e) => {
-                    error!("Failed to get message sender: {}", e);
-                    let _ = ready_tx.send(Err(e));
-                    return;
+                // Connect to streaming service
+                if let Err(e) = streamer.connect_betfair_tls_stream().await {
+                    error!("Failed to connect to streaming: {e}");
+                    if first_start {
+                        if let Ok(mut tx_opt) = ready_tx.write() {
+                            if let Some(tx) = tx_opt.take() {
+                                let _ = tx.send(Err(anyhow::anyhow!("Connection failed: {e}")));
+                            }
+                        }
+                        return;
+                    }
+                    warn!("Connection failed, will retry if enabled: {e}");
+                    continue;
                 }
-            };
 
-            // Signal that we're ready
-            let _ = ready_tx.send(Ok(()));
+                info!("Connected to streaming service");
 
-            // Spawn command handler task
-            let cmd_handle = tokio::spawn(async move {
-                while let Some(cmd) = cmd_rx.recv().await {
-                    match cmd {
-                        StreamingCommand::Subscribe(market_id, levels) => {
-                            info!(
-                                "Processing subscription for market {} with {} levels",
-                                market_id, levels
-                            );
-                            // Only clear data for this specific market, not all markets
-                            if let Ok(mut obs) = orderbooks.write() {
-                                obs.remove(&market_id);
-                            }
-                            if let Ok(mut times) = last_update_times.write() {
-                                times.remove(&market_id);
-                            }
+                // Mark as connected
+                if let Ok(mut connected) = is_connected.write() {
+                    *connected = true;
+                }
 
-                            // Send subscription message directly through the message channel
-                            let sub_msg =
-                                Self::create_market_subscription_message(&market_id, levels);
-                            info!("Sending subscription: {}", sub_msg);
-                            if let Err(e) = message_sender.send(sub_msg).await {
-                                error!("Failed to send subscription: {}", e);
-                            } else {
-                                info!("Successfully sent subscription for market {}", market_id);
-                            }
-                        }
-                        StreamingCommand::SubscribeBatch(market_ids, levels) => {
-                            info!(
-                                "Processing batch subscription for {} markets with {} levels",
-                                market_ids.len(),
-                                levels
-                            );
+                connection_manager
+                    .set_state(ConnectionState::Connected)
+                    .await;
 
-                            // Clear data for all markets in the batch
-                            if let Ok(mut obs) = orderbooks.write() {
-                                for market_id in &market_ids {
-                                    obs.remove(market_id);
+                if !first_start {
+                    info!("Successfully reconnected, resetting reconnect counter");
+                    reconnect_attempt = 0;
+                }
+
+                // Get the message sender and store in shared state
+                let message_sender = match streamer.get_message_sender() {
+                    Some(sender) => sender,
+                    None => {
+                        error!("Message sender not available");
+                        if first_start {
+                            if let Ok(mut tx_opt) = ready_tx.write() {
+                                if let Some(tx) = tx_opt.take() {
+                                    let _ = tx.send(Err(anyhow::anyhow!("Message sender not available")));
                                 }
                             }
-                            if let Ok(mut times) = last_update_times.write() {
-                                for market_id in &market_ids {
-                                    times.remove(market_id);
+                            return;
+                        }
+                        warn!("Message sender not available, will retry");
+                        continue;
+                    }
+                };
+
+                // Update the shared message sender for the command handler
+                if let Ok(mut sender_guard) = active_message_sender_clone.write() {
+                    *sender_guard = Some(message_sender.clone());
+                }
+
+                // Resubscribe to markets after reconnection
+                if !first_start {
+                    info!("Resubscribing to previously subscribed markets");
+
+                    // Get market subscription data without holding the lock
+                    let (market_list, levels) = {
+                        if let Ok(markets) = subscribed_markets.read() {
+                            if !markets.is_empty() {
+                                let list: Vec<String> = markets.keys().cloned().collect();
+                                let lvl = markets.values().next().copied().unwrap_or(10);
+                                (list, lvl)
+                            } else {
+                                (vec![], 10)
+                            }
+                        } else {
+                            (vec![], 10)
+                        }
+                    };
+
+                    if !market_list.is_empty() {
+                        let sub_msg = Self::create_batch_market_subscription_message(&market_list, levels);
+                        if let Err(e) = message_sender.send(sub_msg).await {
+                            error!("Failed to resubscribe to markets: {e}");
+                        } else {
+                            info!("Resubscribed to {} markets", market_list.len());
+                        }
+                    }
+
+                    // Resubscribe to orders
+                    let (should_subscribe, filter_json) = {
+                        if let Ok(subscribed) = subscribed_to_orders.read() {
+                            if *subscribed {
+                                if let Ok(filter) = order_filter.read() {
+                                    let json = if let Some(ref f) = *filter {
+                                        serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string())
+                                    } else {
+                                        "{}".to_string()
+                                    };
+                                    (true, json)
+                                } else {
+                                    (false, String::new())
                                 }
-                            }
-
-                            // Create subscription message with multiple market IDs
-                            let sub_msg =
-                                Self::create_batch_market_subscription_message(&market_ids, levels);
-
-                            info!("Sending batch subscription: {}", sub_msg);
-                            if let Err(e) = message_sender.send(sub_msg).await {
-                                error!("Failed to send batch subscription: {}", e);
                             } else {
-                                info!(
-                                    "Successfully sent batch subscription for {} markets",
-                                    market_ids.len()
-                                );
+                                (false, String::new())
                             }
+                        } else {
+                            (false, String::new())
                         }
-                        StreamingCommand::Unsubscribe(market_id) => {
-                            info!("Unsubscription for market {} - skipping (Betfair handles replacement automatically)", market_id);
-                            // Don't send unsubscribe - Betfair automatically replaces subscriptions
-                            // Just clear the local data for this market
-                            if let Ok(mut obs) = orderbooks.write() {
-                                obs.remove(&market_id);
-                            }
-                            if let Ok(mut times) = last_update_times.write() {
-                                times.remove(&market_id);
-                            }
-                        }
-                        StreamingCommand::SubscribeOrders(filter) => {
-                            info!("Processing order subscription");
+                    };
 
-                            let filter_json = if let Some(f) = filter {
-                                serde_json::to_string(&f).unwrap_or_else(|_| "{}".to_string())
-                            } else {
-                                "{}".to_string()
-                            };
-
-                            let sub_msg = format!(
-                                "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
-                            );
-
-                            info!("Sending order subscription: {}", sub_msg);
-                            if let Err(e) = message_sender.send(sub_msg).await {
-                                error!("Failed to send order subscription: {}", e);
-                            } else {
-                                info!("Successfully sent order subscription");
-                            }
-                        }
-                        StreamingCommand::Stop => {
-                            info!("Stopping streaming client");
-                            break;
+                    if should_subscribe {
+                        info!("Resubscribing to order updates");
+                        let sub_msg = format!(
+                            "{{\"op\":\"orderSubscription\",\"orderFilter\":{filter_json},\"segmentationEnabled\":true}}\r\n"
+                        );
+                        if let Err(e) = message_sender.send(sub_msg).await {
+                            error!("Failed to resubscribe to orders: {e}");
+                        } else {
+                            info!("Resubscribed to order updates");
                         }
                     }
                 }
-            });
 
-            // Start listening (this blocks)
-            let listen_result = streamer.start().await;
+                // Signal that we're ready (only on first start)
+                if first_start {
+                    if let Ok(mut tx_opt) = ready_tx.write() {
+                        if let Some(tx) = tx_opt.take() {
+                            let _ = tx.send(Ok(()));
+                        }
+                    }
+                    first_start = false;
+                }
 
-            if let Err(e) = listen_result {
-                error!("Streaming listener error: {}", e);
-            }
+                // Start listening (this blocks until disconnection)
+                let listen_result = streamer.start().await;
 
-            // Stop the command handler if still running
-            cmd_handle.abort();
+                // Mark as disconnected
+                if let Ok(mut connected) = is_connected.write() {
+                    *connected = false;
+                }
 
-            // Mark as disconnected
-            if let Ok(mut connected) = is_connected.write() {
-                *connected = false;
+                connection_manager
+                    .set_state(ConnectionState::Disconnected)
+                    .await;
+
+                // Clear the active message sender
+                if let Ok(mut sender_guard) = active_message_sender_clone.write() {
+                    *sender_guard = None;
+                }
+
+                match listen_result {
+                    Ok(_) => {
+                        info!("Streaming listener ended normally");
+                    }
+                    Err(e) => {
+                        error!("Streaming listener error: {e}");
+                    }
+                }
+
+                // Loop will continue for reconnection if enabled
+                if !enable_reconnection {
+                    info!("Reconnection disabled, exiting streaming task");
+                    break;
+                }
+
+                warn!("Stream disconnected, will attempt reconnection...");
             }
         });
 
