@@ -403,23 +403,56 @@ impl BetfairStreamer {
                     }
                 }
                 "ocm" => {
-                    if let Ok(order_change_message) =
-                        serde_json::from_str::<OrderChangeMessage>(&message.to_string())
-                    {
-                        info!(
-                            "OCM received: {} order changes",
-                            order_change_message.order_changes.len()
-                        );
-                        debug!("OrderChangeMessage details: {:?}", &order_change_message);
-                        self.parse_order_change_message(order_change_message);
-                    } else if let Ok(heartbeat_message) =
-                        serde_json::from_str::<HeartbeatMessage>(&message.to_string())
-                    {
-                        info!("Heartbeat received (id: {})", heartbeat_message.id);
-                        debug!("HeartbeatMessage details: {:?}", &heartbeat_message);
-                    } else {
-                        info!("Unknown OCM message: {}", parsed_message);
+                    // Check change type (ct) field
+                    let change_type = parsed_message.get("ct").and_then(Value::as_str);
+
+                    match change_type {
+                        Some("SUB_IMAGE") => {
+                            // Initial subscription snapshot - parse as OrderChangeMessage
+                            if let Ok(order_change_message) =
+                                serde_json::from_str::<OrderChangeMessage>(&message.to_string())
+                            {
+                                info!(
+                                    "OCM SUB_IMAGE: {} order changes",
+                                    order_change_message.order_changes.len()
+                                );
+                                debug!("OrderChangeMessage details: {:?}", &order_change_message);
+                                self.parse_order_change_message(order_change_message);
+                            }
+                        }
+                        Some("HEARTBEAT") => {
+                            debug!("OCM heartbeat received");
+                        }
+                        Some("UPDATE") => {
+                            // Regular order updates
+                            if let Ok(order_change_message) =
+                                serde_json::from_str::<OrderChangeMessage>(&message.to_string())
+                            {
+                                info!(
+                                    "OCM UPDATE: {} order changes",
+                                    order_change_message.order_changes.len()
+                                );
+                                debug!("OrderChangeMessage details: {:?}", &order_change_message);
+                                self.parse_order_change_message(order_change_message);
+                            }
+                        }
+                        _ => {
+                            // Try legacy parsing for backwards compatibility
+                            if let Ok(order_change_message) =
+                                serde_json::from_str::<OrderChangeMessage>(&message.to_string())
+                            {
+                                info!(
+                                    "OCM received: {} order changes",
+                                    order_change_message.order_changes.len()
+                                );
+                                debug!("OrderChangeMessage details: {:?}", &order_change_message);
+                                self.parse_order_change_message(order_change_message);
+                            } else {
+                                debug!("Unknown OCM message type: {:?}", change_type);
+                            }
+                        }
                     }
+
                     if let Ok(mut ts) = self.last_message_ts.lock() {
                         *ts = Instant::now();
                     }
