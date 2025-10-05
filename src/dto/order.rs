@@ -180,6 +180,7 @@ pub struct CancelOrdersRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CancelInstruction {
     pub bet_id: String,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "sizeCancelled")]
     #[serde(with = "super::decimal_serde::option")]
