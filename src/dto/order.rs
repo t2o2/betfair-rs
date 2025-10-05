@@ -181,6 +181,7 @@ pub struct CancelOrdersRequest {
 pub struct CancelInstruction {
     pub bet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "size_cancelled")]
     #[serde(with = "super::decimal_serde::option")]
     pub size_reduction: Option<Decimal>,
 }
