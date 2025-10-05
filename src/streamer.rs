@@ -385,27 +385,37 @@ impl BetfairStreamer {
         if let Some(op) = parsed_message.get("op").and_then(Value::as_str) {
             match op {
                 "mcm" => {
-                    if let Ok(market_change_message) =
-                        serde_json::from_str::<MarketChangeMessage>(&message.to_string())
-                    {
-                        info!(
-                            "MCM received: {} markets, {} changes",
-                            market_change_message.market_changes.len(),
-                            market_change_message
-                                .market_changes
-                                .iter()
-                                .map(|mc| mc.runner_changes.as_ref().map_or(0, |rc| rc.len()))
-                                .sum::<usize>()
-                        );
-                        debug!("MarketChangeMessage details: {:?}", &market_change_message);
-                        self.parse_market_change_message(market_change_message);
-                    } else if let Ok(heartbeat_message) =
-                        serde_json::from_str::<HeartbeatMessage>(&message.to_string())
-                    {
-                        info!("Heartbeat received (id: {})", heartbeat_message.id);
-                        debug!("HeartbeatMessage details: {:?}", heartbeat_message);
-                    } else {
-                        info!("Unknown MCM message: {}", parsed_message);
+                    // Log raw mc array length BEFORE deserialization
+                    if let Some(mc_array) = parsed_message.get("mc").and_then(|v| v.as_array()) {
+                        info!("Raw JSON has {} markets in mc array", mc_array.len());
+                    }
+
+                    match serde_json::from_str::<MarketChangeMessage>(&message.to_string()) {
+                        Ok(market_change_message) => {
+                            info!(
+                                "MCM received: {} markets, {} changes",
+                                market_change_message.market_changes.len(),
+                                market_change_message
+                                    .market_changes
+                                    .iter()
+                                    .map(|mc| mc.runner_changes.as_ref().map_or(0, |rc| rc.len()))
+                                    .sum::<usize>()
+                            );
+                            debug!("MarketChangeMessage details: {:?}", &market_change_message);
+                            self.parse_market_change_message(market_change_message);
+                        }
+                        Err(e) => {
+                            if let Ok(heartbeat_message) =
+                                serde_json::from_str::<HeartbeatMessage>(&message.to_string())
+                            {
+                                info!("Heartbeat received (id: {})", heartbeat_message.id);
+                                debug!("HeartbeatMessage details: {:?}", heartbeat_message);
+                            } else {
+                                error!("Failed to deserialize MCM: {:?}", e);
+                                error!("Message was: {}", &message[..message.len().min(1000)]);
+                                info!("Unknown MCM message: {}", parsed_message);
+                            }
+                        }
                     }
                     if let Ok(mut ts) = self.last_message_ts.lock() {
                         *ts = Instant::now();

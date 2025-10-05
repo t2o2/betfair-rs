@@ -37,6 +37,10 @@ pub struct MarketChange {
     pub runner_changes: Option<Vec<RunnerChange>>,
     #[serde(rename = "marketDefinition")]
     pub market_definition: Option<MarketDefinition>,
+    #[serde(default)]
+    pub img: Option<bool>,
+    #[serde(default)]
+    pub con: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
