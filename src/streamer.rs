@@ -405,15 +405,21 @@ impl BetfairStreamer {
                             self.parse_market_change_message(market_change_message);
                         }
                         Err(e) => {
-                            error!("Failed to deserialize MarketChangeMessage: {}", e);
-                            error!("First 500 chars of message: {}", &message[..message.len().min(500)]);
-                            if let Ok(heartbeat_message) =
-                                serde_json::from_str::<HeartbeatMessage>(&message.to_string())
-                            {
-                                info!("Heartbeat received (id: {})", heartbeat_message.id);
-                                debug!("HeartbeatMessage details: {:?}", heartbeat_message);
+                            // Check if this is actually a heartbeat (no "mc" field) vs a failed MCM parse
+                            if parsed_message.get("mc").is_none() {
+                                // No "mc" field - try heartbeat
+                                if let Ok(heartbeat_message) =
+                                    serde_json::from_str::<HeartbeatMessage>(&message.to_string())
+                                {
+                                    info!("Heartbeat received (id: {})", heartbeat_message.id);
+                                    debug!("HeartbeatMessage details: {:?}", heartbeat_message);
+                                } else {
+                                    info!("Unknown MCM message: {}", parsed_message);
+                                }
                             } else {
-                                info!("Unknown MCM message: {}", parsed_message);
+                                // Has "mc" field but failed to deserialize - this is a real error!
+                                error!("Failed to deserialize MarketChangeMessage: {}", e);
+                                error!("First 500 chars of message: {}", &message[..message.len().min(500)]);
                             }
                         }
                     }
