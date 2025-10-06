@@ -405,14 +405,14 @@ impl BetfairStreamer {
                             self.parse_market_change_message(market_change_message);
                         }
                         Err(e) => {
+                            error!("Failed to deserialize MarketChangeMessage: {}", e);
+                            error!("First 500 chars of message: {}", &message[..message.len().min(500)]);
                             if let Ok(heartbeat_message) =
                                 serde_json::from_str::<HeartbeatMessage>(&message.to_string())
                             {
                                 info!("Heartbeat received (id: {})", heartbeat_message.id);
                                 debug!("HeartbeatMessage details: {:?}", heartbeat_message);
                             } else {
-                                error!("Failed to deserialize MCM: {:?}", e);
-                                error!("Message was: {}", &message[..message.len().min(1000)]);
                                 info!("Unknown MCM message: {}", parsed_message);
                             }
                         }
