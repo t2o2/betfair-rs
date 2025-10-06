@@ -111,10 +111,10 @@ pub struct MarketDefinition {
 #[allow(dead_code)]
 pub struct RunnerChange {
     pub id: u64,
-    #[serde(rename = "batb")]
+    #[serde(rename = "batb", default)]
     #[serde(with = "super::decimal_serde::option_vec_array3")]
     pub available_to_back: Option<Vec<[Decimal; 3]>>,
-    #[serde(rename = "batl")]
+    #[serde(rename = "batl", default)]
     #[serde(with = "super::decimal_serde::option_vec_array3")]
     pub available_to_lay: Option<Vec<[Decimal; 3]>>,
 }
