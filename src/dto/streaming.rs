@@ -61,6 +61,50 @@ pub struct MarketDefinition {
     pub market_time: Option<String>,
     #[serde(rename = "numberOfActiveRunners")]
     pub number_of_active_runners: Option<i32>,
+    #[serde(rename = "bspMarket", default)]
+    pub bsp_market: Option<bool>,
+    #[serde(rename = "turnInPlayEnabled", default)]
+    pub turn_in_play_enabled: Option<bool>,
+    #[serde(rename = "persistenceEnabled", default)]
+    pub persistence_enabled: Option<bool>,
+    #[serde(rename = "marketBaseRate", default)]
+    pub market_base_rate: Option<f64>,
+    #[serde(rename = "eventId", default)]
+    pub event_id: Option<String>,
+    #[serde(rename = "eventTypeId", default)]
+    pub event_type_id: Option<String>,
+    #[serde(rename = "numberOfWinners", default)]
+    pub number_of_winners: Option<i32>,
+    #[serde(rename = "bettingType", default)]
+    pub betting_type: Option<String>,
+    #[serde(rename = "marketType", default)]
+    pub market_type: Option<String>,
+    #[serde(rename = "suspendTime", default)]
+    pub suspend_time: Option<String>,
+    #[serde(rename = "bspReconciled", default)]
+    pub bsp_reconciled: Option<bool>,
+    #[serde(rename = "crossMatching", default)]
+    pub cross_matching: Option<bool>,
+    #[serde(rename = "runnersVoidable", default)]
+    pub runners_voidable: Option<bool>,
+    #[serde(rename = "betDelay", default)]
+    pub bet_delay: Option<i32>,
+    #[serde(default)]
+    pub runners: Option<serde_json::Value>,
+    #[serde(default)]
+    pub regulators: Option<Vec<String>>,
+    #[serde(rename = "countryCode", default)]
+    pub country_code: Option<String>,
+    #[serde(rename = "discountAllowed", default)]
+    pub discount_allowed: Option<bool>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(rename = "openDate", default)]
+    pub open_date: Option<String>,
+    #[serde(default)]
+    pub version: Option<i64>,
+    #[serde(rename = "priceLadderDefinition", default)]
+    pub price_ladder_definition: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
