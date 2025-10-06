@@ -27,6 +27,12 @@ pub struct MarketChangeMessage {
     pub op: String,
     pub pt: i64,
     pub ct: Option<String>,
+    #[serde(rename = "initialClk", default)]
+    pub initial_clock: Option<String>,
+    #[serde(rename = "conflateMs", default)]
+    pub conflate_ms: Option<i64>,
+    #[serde(rename = "heartbeatMs", default)]
+    pub heartbeat_ms: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
