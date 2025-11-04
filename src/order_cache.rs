@@ -230,25 +230,36 @@ mod tests {
     fn test_update_matched_backs() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
+        runner.update_matched_backs(vec![
+            vec![dec!(2.0), dec!(50.0)],
+            vec![dec!(2.5), dec!(100.0)],
+        ]);
         assert_eq!(runner.matched_backs.len(), 2);
 
         let keys: Vec<String> = runner.matched_backs.keys().cloned().collect();
-        assert!(keys.contains(&"2".to_string()) || keys.contains(&"2.0".to_string()),
-                "Expected key '2' or '2.0', got: {keys:?}");
+        assert!(
+            keys.contains(&"2".to_string()) || keys.contains(&"2.0".to_string()),
+            "Expected key '2' or '2.0', got: {keys:?}"
+        );
 
         let price_key = dec!(2.0).to_string();
         assert_eq!(*runner.matched_backs.get(&price_key).unwrap(), dec!(50.0));
 
         let price_key_2 = dec!(2.5).to_string();
-        assert_eq!(*runner.matched_backs.get(&price_key_2).unwrap(), dec!(100.0));
+        assert_eq!(
+            *runner.matched_backs.get(&price_key_2).unwrap(),
+            dec!(100.0)
+        );
     }
 
     #[test]
     fn test_remove_matched_backs_with_zero() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
+        runner.update_matched_backs(vec![
+            vec![dec!(2.0), dec!(50.0)],
+            vec![dec!(2.5), dec!(100.0)],
+        ]);
         assert_eq!(runner.matched_backs.len(), 2);
 
         runner.update_matched_backs(vec![vec![dec!(2.0), Decimal::ZERO]]);
@@ -287,7 +298,10 @@ mod tests {
     fn test_get_total_matched() {
         let mut runner = RunnerOrders::new(12345);
 
-        runner.update_matched_backs(vec![vec![dec!(2.0), dec!(50.0)], vec![dec!(2.5), dec!(100.0)]]);
+        runner.update_matched_backs(vec![
+            vec![dec!(2.0), dec!(50.0)],
+            vec![dec!(2.5), dec!(100.0)],
+        ]);
         runner.update_matched_lays(vec![vec![dec!(3.0), dec!(75.0)]]);
 
         assert_eq!(runner.get_total_back_matched(), dec!(150.0));

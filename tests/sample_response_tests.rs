@@ -34,7 +34,9 @@ fn test_place_order_success_limit() {
             println!("✅ Successfully parsed limit order response");
             assert_eq!(response.status, "SUCCESS");
             assert_eq!(response.market_id, "1.248324306");
-            let reports = response.instruction_reports.expect("Should have instruction reports");
+            let reports = response
+                .instruction_reports
+                .expect("Should have instruction reports");
             assert_eq!(reports.len(), 1);
             assert_eq!(reports[0].bet_id, Some("404254044217".to_string()));
         }
@@ -74,8 +76,13 @@ fn test_place_order_failure_duplicate() {
         Ok(response) => {
             println!("✅ Successfully parsed duplicate order failure response");
             assert_eq!(response.status, "FAILURE");
-            assert_eq!(response.error_code, Some("DUPLICATE_TRANSACTION".to_string()));
-            let reports = response.instruction_reports.expect("Should have instruction reports");
+            assert_eq!(
+                response.error_code,
+                Some("DUPLICATE_TRANSACTION".to_string())
+            );
+            let reports = response
+                .instruction_reports
+                .expect("Should have instruction reports");
             assert_eq!(reports.len(), 1);
             assert_eq!(reports[0].status, "FAILURE");
             assert_eq!(reports[0].error_code, Some("ERROR_IN_ORDER".to_string()));

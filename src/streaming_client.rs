@@ -13,8 +13,9 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 /// Type alias for orderbook callback function
-type OrderbookCallback =
-    Arc<dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static>;
+type OrderbookCallback = Arc<
+    dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static,
+>;
 type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 /// A non-blocking streaming client for Betfair market data
@@ -207,7 +208,9 @@ impl StreamingClient {
 
                 match cmd {
                     StreamingCommand::Subscribe(market_id, levels) => {
-                        info!("Processing subscription for market {market_id} with {levels} levels");
+                        info!(
+                            "Processing subscription for market {market_id} with {levels} levels"
+                        );
 
                         if let Ok(mut markets) = subscribed_markets_ref.write() {
                             markets.insert(market_id.clone(), levels);
@@ -226,7 +229,10 @@ impl StreamingClient {
                         }
                     }
                     StreamingCommand::SubscribeBatch(market_ids, levels) => {
-                        info!("Processing batch subscription for {} markets", market_ids.len());
+                        info!(
+                            "Processing batch subscription for {} markets",
+                            market_ids.len()
+                        );
 
                         if let Ok(mut markets) = subscribed_markets_ref.write() {
                             for market_id in &market_ids {
@@ -245,7 +251,8 @@ impl StreamingClient {
                             }
                         }
 
-                        let sub_msg = Self::create_batch_market_subscription_message(&market_ids, levels);
+                        let sub_msg =
+                            Self::create_batch_market_subscription_message(&market_ids, levels);
                         if let Err(e) = sender.send(sub_msg).await {
                             error!("Failed to send batch subscription: {e}");
                         }
@@ -308,7 +315,9 @@ impl StreamingClient {
                     if reconnect_attempt > 5 {
                         error!("Max reconnection attempts exceeded");
                         connection_manager
-                            .set_state(ConnectionState::Failed("Max reconnection attempts exceeded".to_string()))
+                            .set_state(ConnectionState::Failed(
+                                "Max reconnection attempts exceeded".to_string(),
+                            ))
                             .await;
                         break;
                     }
@@ -364,52 +373,53 @@ impl StreamingClient {
                 let orders_ref = orders.clone();
                 let order_callback_clone = custom_order_callback.clone();
                 streamer.set_orderupdate_callback(move |order_change_message| {
-                if let Ok(mut order_cache_map) = orders_ref.write() {
-                    for order_change in &order_change_message.order_changes {
-                        let market_id = &order_change.id;
-                        let cache = order_cache_map
-                            .entry(market_id.clone())
-                            .or_insert_with(|| OrderCache::new(market_id.clone()));
+                    if let Ok(mut order_cache_map) = orders_ref.write() {
+                        for order_change in &order_change_message.order_changes {
+                            let market_id = &order_change.id;
+                            let cache = order_cache_map
+                                .entry(market_id.clone())
+                                .or_insert_with(|| OrderCache::new(market_id.clone()));
 
-                        cache.update_timestamp(order_change_message.pt);
+                            cache.update_timestamp(order_change_message.pt);
 
-                        if order_change.full_image {
-                            cache.clear();
-                        }
+                            if order_change.full_image {
+                                cache.clear();
+                            }
 
-                        if let Some(ref runner_changes) = order_change.order_runner_change {
-                            for runner_change in runner_changes {
-                                let runner = cache.get_runner_mut(runner_change.id);
-                                runner.set_handicap(runner_change.handicap);
+                            if let Some(ref runner_changes) = order_change.order_runner_change {
+                                for runner_change in runner_changes {
+                                    let runner = cache.get_runner_mut(runner_change.id);
+                                    runner.set_handicap(runner_change.handicap);
 
-                                if runner_change.full_image {
-                                    if let Some(ref orders) = runner_change.unmatched_orders {
-                                        runner.apply_full_image(orders.clone());
-                                    } else {
-                                        runner.orders.clear();
+                                    if runner_change.full_image {
+                                        if let Some(ref orders) = runner_change.unmatched_orders {
+                                            runner.apply_full_image(orders.clone());
+                                        } else {
+                                            runner.orders.clear();
+                                        }
+                                    } else if let Some(ref orders) = runner_change.unmatched_orders
+                                    {
+                                        for order in orders {
+                                            runner.update_order(order.clone());
+                                        }
                                     }
-                                } else if let Some(ref orders) = runner_change.unmatched_orders {
-                                    for order in orders {
-                                        runner.update_order(order.clone());
+
+                                    if let Some(ref matched_backs) = runner_change.matched_backs {
+                                        runner.update_matched_backs(matched_backs.clone());
                                     }
-                                }
 
-                                if let Some(ref matched_backs) = runner_change.matched_backs {
-                                    runner.update_matched_backs(matched_backs.clone());
-                                }
-
-                                if let Some(ref matched_lays) = runner_change.matched_lays {
-                                    runner.update_matched_lays(matched_lays.clone());
+                                    if let Some(ref matched_lays) = runner_change.matched_lays {
+                                        runner.update_matched_lays(matched_lays.clone());
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if let Some(ref callback) = order_callback_clone {
-                    callback(order_change_message);
-                }
-            });
+                    if let Some(ref callback) = order_callback_clone {
+                        callback(order_change_message);
+                    }
+                });
 
                 // Connect to streaming service
                 if let Err(e) = streamer.connect_betfair_tls_stream().await {
@@ -450,7 +460,8 @@ impl StreamingClient {
                         if first_start {
                             if let Ok(mut tx_opt) = ready_tx.write() {
                                 if let Some(tx) = tx_opt.take() {
-                                    let _ = tx.send(Err(anyhow::anyhow!("Message sender not available")));
+                                    let _ = tx
+                                        .send(Err(anyhow::anyhow!("Message sender not available")));
                                 }
                             }
                             return;
@@ -485,7 +496,8 @@ impl StreamingClient {
                     };
 
                     if !market_list.is_empty() {
-                        let sub_msg = Self::create_batch_market_subscription_message(&market_list, levels);
+                        let sub_msg =
+                            Self::create_batch_market_subscription_message(&market_list, levels);
                         if let Err(e) = message_sender.send(sub_msg).await {
                             error!("Failed to resubscribe to markets: {e}");
                         } else {
@@ -499,7 +511,8 @@ impl StreamingClient {
                             if *subscribed {
                                 if let Ok(filter) = order_filter.read() {
                                     let json = if let Some(ref f) = *filter {
-                                        serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string())
+                                        serde_json::to_string(f)
+                                            .unwrap_or_else(|_| "{}".to_string())
                                     } else {
                                         "{}".to_string()
                                     };

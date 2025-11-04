@@ -77,19 +77,26 @@ pub struct ListMarketCatalogueRequest {
 pub struct MarketCatalogue {
     pub market_id: String,
     pub market_name: String,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_start_time: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<MarketDescription>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub total_matched: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runners: Option<Vec<RunnerCatalog>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_type: Option<EventType>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub competition: Option<Competition>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event: Option<Event>,
 }
@@ -116,6 +123,7 @@ pub struct MarketDescription {
     pub rules: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rules_has_date: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub each_way_divisor: Option<Decimal>,
@@ -224,38 +232,54 @@ pub struct ExBestOffersOverrides {
 pub struct MarketBook {
     pub market_id: String,
     pub is_market_data_delayed: bool,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<MarketStatus>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_delay: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bsp_reconciled: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complete: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inplay: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_winners: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_runners: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_active_runners: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_match_time: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub total_matched: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub total_available: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cross_matching: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runners_voidable: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runners: Option<Vec<Runner>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_line_description: Option<KeyLineDescription>,
 }
@@ -282,25 +306,34 @@ pub struct Runner {
     #[serde(with = "super::decimal_serde")]
     pub handicap: Decimal,
     pub status: RunnerStatus,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub adjustment_factor: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub last_price_traded: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub total_matched: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub removal_date: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sp: Option<StartingPrices>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ex: Option<ExchangePrices>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orders: Option<Vec<MarketOrder>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matches: Option<Vec<Match>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_preplay: Option<HashMap<String, Match>>,
 }
@@ -437,4 +470,83 @@ pub struct CompetitionResult {
     pub market_count: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub competition_region: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_market_description_with_each_way_divisor() {
+        let json = r#"{
+            "persistenceEnabled": true,
+            "bspMarket": false,
+            "marketTime": "2024-01-01T12:00:00.000Z",
+            "suspendTime": "2024-01-01T12:00:00.000Z",
+            "bettingType": "ODDS",
+            "turnInPlayEnabled": true,
+            "marketType": "WIN",
+            "regulator": "MR_INT",
+            "marketBaseRate": 5.0,
+            "discountAllowed": true,
+            "eachWayDivisor": 4.0
+        }"#;
+
+        let result: Result<MarketDescription, _> = serde_json::from_str(json);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+        let desc = result.unwrap();
+        assert!(desc.each_way_divisor.is_some());
+        assert_eq!(desc.each_way_divisor.unwrap().to_string(), "4.0");
+    }
+
+    #[test]
+    fn test_market_description_without_each_way_divisor() {
+        let json = r#"{
+            "persistenceEnabled": true,
+            "bspMarket": false,
+            "marketTime": "2024-01-01T12:00:00.000Z",
+            "suspendTime": "2024-01-01T12:00:00.000Z",
+            "bettingType": "ODDS",
+            "turnInPlayEnabled": true,
+            "marketType": "WIN",
+            "regulator": "MR_INT",
+            "marketBaseRate": 5.0,
+            "discountAllowed": true
+        }"#;
+
+        let result: Result<MarketDescription, _> = serde_json::from_str(json);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+        let desc = result.unwrap();
+        assert!(desc.each_way_divisor.is_none());
+    }
+
+    #[test]
+    fn test_runner_with_adjustment_factor() {
+        let json = r#"{
+            "selectionId": 12345,
+            "handicap": 0.0,
+            "status": "ACTIVE",
+            "adjustmentFactor": 2.5
+        }"#;
+
+        let result: Result<Runner, _> = serde_json::from_str(json);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+        let runner = result.unwrap();
+        assert!(runner.adjustment_factor.is_some());
+        assert_eq!(runner.adjustment_factor.unwrap().to_string(), "2.5");
+    }
+
+    #[test]
+    fn test_runner_without_adjustment_factor() {
+        let json = r#"{
+            "selectionId": 12345,
+            "handicap": 0.0,
+            "status": "ACTIVE"
+        }"#;
+
+        let result: Result<Runner, _> = serde_json::from_str(json);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+        let runner = result.unwrap();
+        assert!(runner.adjustment_factor.is_none());
+    }
 }

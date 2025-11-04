@@ -28,7 +28,10 @@ use ratatui::{
     },
     Frame, Terminal,
 };
-use rust_decimal::{prelude::{FromPrimitive, ToPrimitive}, Decimal};
+use rust_decimal::{
+    prelude::{FromPrimitive, ToPrimitive},
+    Decimal,
+};
 use std::{
     collections::{HashMap, HashSet},
     io,
@@ -551,14 +554,24 @@ impl App {
                                     .bids
                                     .iter()
                                     .take(10)
-                                    .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
+                                    .map(|level| {
+                                        (
+                                            level.price.to_f64().unwrap_or(0.0),
+                                            level.size.to_f64().unwrap_or(0.0),
+                                        )
+                                    })
                                     .collect();
 
                                 let asks: Vec<(f64, f64)> = orderbook
                                     .asks
                                     .iter()
                                     .take(10)
-                                    .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
+                                    .map(|level| {
+                                        (
+                                            level.price.to_f64().unwrap_or(0.0),
+                                            level.size.to_f64().unwrap_or(0.0),
+                                        )
+                                    })
                                     .collect();
 
                                 let runner_name = runner_names
@@ -647,14 +660,24 @@ impl App {
                                 bids = back_prices
                                     .iter()
                                     .take(10)
-                                    .map(|p| (p.price.to_f64().unwrap_or(0.0), p.size.to_f64().unwrap_or(0.0)))
+                                    .map(|p| {
+                                        (
+                                            p.price.to_f64().unwrap_or(0.0),
+                                            p.size.to_f64().unwrap_or(0.0),
+                                        )
+                                    })
                                     .collect();
                             }
                             if let Some(lay_prices) = &ex.available_to_lay {
                                 asks = lay_prices
                                     .iter()
                                     .take(10)
-                                    .map(|p| (p.price.to_f64().unwrap_or(0.0), p.size.to_f64().unwrap_or(0.0)))
+                                    .map(|p| {
+                                        (
+                                            p.price.to_f64().unwrap_or(0.0),
+                                            p.size.to_f64().unwrap_or(0.0),
+                                        )
+                                    })
                                     .collect();
                             }
                         }
@@ -681,7 +704,10 @@ impl App {
                             bids,
                             asks,
                             last_traded: runner.last_price_traded.and_then(|d| d.to_f64()),
-                            total_matched: runner.total_matched.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                            total_matched: runner
+                                .total_matched
+                                .and_then(|d| d.to_f64())
+                                .unwrap_or(0.0),
                             is_streaming: false,
                             last_update: None,
                             prev_best_bid: None,
@@ -838,11 +864,11 @@ impl App {
                 .into_iter()
                 .collect();
 
-            // Fetch market details for enrichment
+            // Fetch market details for enrichment - batch request for all markets
             let mut market_details = std::collections::HashMap::new();
-            for market_id in market_ids {
+            if !market_ids.is_empty() {
                 let filter = MarketFilter {
-                    market_ids: Some(vec![market_id.clone()]),
+                    market_ids: Some(market_ids.clone()),
                     ..Default::default()
                 };
                 let request = ListMarketCatalogueRequest {
@@ -854,12 +880,28 @@ impl App {
                         MarketProjection::RunnerDescription,
                     ]),
                     sort: None,
-                    max_results: Some(1),
+                    max_results: Some(market_ids.len() as i32),
                     locale: None,
                 };
-                if let Ok(markets) = client.list_market_catalogue(request).await {
-                    if let Some(market) = markets.first() {
-                        market_details.insert(market_id, market.clone());
+                match client.list_market_catalogue(request).await {
+                    Ok(markets) => {
+                        info!(
+                            "Fetched {} market catalogues for {} unique markets",
+                            markets.len(),
+                            market_ids.len()
+                        );
+                        for market in markets {
+                            market_details.insert(market.market_id.clone(), market);
+                        }
+                        // Log any markets that couldn't be fetched
+                        for market_id in &market_ids {
+                            if !market_details.contains_key(market_id) {
+                                warn!("No market catalogue found for market_id: {}", market_id);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch market catalogues: {}", e);
                     }
                 }
             }
@@ -869,25 +911,48 @@ impl App {
                 .into_iter()
                 .map(|o| {
                     let market = market_details.get(&o.market_id);
-                    let competition_name = market
-                        .and_then(|m| m.competition.as_ref())
-                        .map(|c| c.name.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let event_name = market
-                        .and_then(|m| m.event.as_ref())
-                        .map(|e| e.name.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let market_type = market
-                        .and_then(|m| m.description.as_ref())
-                        .map(|d| d.market_type.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let runner_name = market
-                        .and_then(|m| m.runners.as_ref())
-                        .and_then(|runners| {
-                            runners.iter().find(|r| r.selection_id == o.selection_id)
-                        })
-                        .map(|r| r.runner_name.clone())
-                        .unwrap_or_else(|| format!("Runner {}", o.selection_id));
+                    let (competition_name, event_name, market_type, runner_name) = match market {
+                        Some(m) => {
+                            let comp = m
+                                .competition
+                                .as_ref()
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|| "No Competition".to_string());
+                            let evt = m
+                                .event
+                                .as_ref()
+                                .map(|e| e.name.clone())
+                                .unwrap_or_else(|| "No Event".to_string());
+                            let mkt = m
+                                .description
+                                .as_ref()
+                                .map(|d| d.market_type.clone())
+                                .unwrap_or_else(|| "Unknown Type".to_string());
+                            let runner = m
+                                .runners
+                                .as_ref()
+                                .and_then(|runners| {
+                                    runners.iter().find(|r| r.selection_id == o.selection_id)
+                                })
+                                .map(|r| r.runner_name.clone())
+                                .unwrap_or_else(|| format!("Selection {}", o.selection_id));
+                            (comp, evt, mkt, runner)
+                        }
+                        None => {
+                            // Market details not available - show market ID
+                            let market_short = if o.market_id.len() > 15 {
+                                format!("...{}", &o.market_id[o.market_id.len() - 12..])
+                            } else {
+                                o.market_id.clone()
+                            };
+                            (
+                                "Market Unavailable".to_string(),
+                                market_short,
+                                "Closed/Settled".to_string(),
+                                format!("Selection {}", o.selection_id),
+                            )
+                        }
+                    };
 
                     Order {
                         bet_id: o.bet_id,
@@ -1263,13 +1328,23 @@ impl App {
                 .bids
                 .iter()
                 .take(10)
-                .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
+                .map(|level| {
+                    (
+                        level.price.to_f64().unwrap_or(0.0),
+                        level.size.to_f64().unwrap_or(0.0),
+                    )
+                })
                 .collect();
             let new_asks: Vec<(f64, f64)> = streaming_ob
                 .asks
                 .iter()
                 .take(10)
-                .map(|level| (level.price.to_f64().unwrap_or(0.0), level.size.to_f64().unwrap_or(0.0)))
+                .map(|level| {
+                    (
+                        level.price.to_f64().unwrap_or(0.0),
+                        level.size.to_f64().unwrap_or(0.0),
+                    )
+                })
                 .collect();
 
             // Log current vs new data for comparison
@@ -2252,7 +2327,10 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                     app.error_message = None; // Clear any old errors
                 }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
-                    app.perform_manual_refresh().await?;
+                    if let Err(e) = app.perform_manual_refresh().await {
+                        app.error_message = Some(format!("Refresh failed: {}", e));
+                        app.status_message = "⚠️ Refresh failed - see error above".to_string();
+                    }
                 }
                 KeyCode::Char('d') | KeyCode::Char('D') => {
                     app.show_diagnostics = !app.show_diagnostics;
@@ -2264,7 +2342,10 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 }
                 KeyCode::F(5) => {
                     // F5 = Force refresh (bypasses streaming)
-                    app.perform_force_refresh().await?;
+                    if let Err(e) = app.perform_force_refresh().await {
+                        app.error_message = Some(format!("Force refresh failed: {}", e));
+                        app.status_message = "⚠️ Force refresh failed - see error above".to_string();
+                    }
                 }
                 KeyCode::Char('?') => app.mode = AppMode::Help,
                 // Arrow key navigation (Up/Down for moving within panel)
@@ -2439,17 +2520,22 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                         let market_id = market.id.clone();
                                         let order_market_id = market.id.clone();
 
-                                        app.load_orderbook(&market_id).await?;
-                                        app.order_market_id = order_market_id;
+                                        if let Err(e) = app.load_orderbook(&market_id).await {
+                                            app.error_message =
+                                                Some(format!("Failed to load orderbook: {}", e));
+                                        } else {
+                                            app.order_market_id = order_market_id;
 
-                                        // Set first runner as default
-                                        if let Some(orderbook) = &app.current_orderbook {
-                                            if let Some(first_runner) = orderbook.runners.first() {
-                                                app.order_selection_id =
-                                                    first_runner.runner_id.to_string();
-                                                app.order_runner_name =
-                                                    first_runner.runner_name.clone();
-                                                app.selected_runner = Some(0);
+                                            // Set first runner as default
+                                            if let Some(orderbook) = &app.current_orderbook {
+                                                if let Some(first_runner) = orderbook.runners.first()
+                                                {
+                                                    app.order_selection_id =
+                                                        first_runner.runner_id.to_string();
+                                                    app.order_runner_name =
+                                                        first_runner.runner_name.clone();
+                                                    app.selected_runner = Some(0);
+                                                }
                                             }
                                         }
                                     }
@@ -2463,12 +2549,18 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                             .selected_sport
                                             .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                                         if let Some(sport_id) = sport_id {
-                                            app.load_markets(&sport_id, Some(&event_id)).await?;
-                                            app.selected_market = if !app.markets.is_empty() {
-                                                Some(0)
+                                            if let Err(e) =
+                                                app.load_markets(&sport_id, Some(&event_id)).await
+                                            {
+                                                app.error_message =
+                                                    Some(format!("Failed to load markets: {}", e));
                                             } else {
-                                                None
-                                            };
+                                                app.selected_market = if !app.markets.is_empty() {
+                                                    Some(0)
+                                                } else {
+                                                    None
+                                                };
+                                            }
                                         }
                                     }
                                 }
@@ -2481,12 +2573,18 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                             .selected_sport
                                             .and_then(|i| app.sports.get(i).map(|s| s.0.clone()));
                                         if let Some(sport_id) = sport_id {
-                                            app.load_events(&sport_id, Some(&comp_id)).await?;
-                                            app.selected_event = if !app.events.is_empty() {
-                                                Some(0)
+                                            if let Err(e) =
+                                                app.load_events(&sport_id, Some(&comp_id)).await
+                                            {
+                                                app.error_message =
+                                                    Some(format!("Failed to load events: {}", e));
                                             } else {
-                                                None
-                                            };
+                                                app.selected_event = if !app.events.is_empty() {
+                                                    Some(0)
+                                                } else {
+                                                    None
+                                                };
+                                            }
                                         }
                                     }
                                 }
@@ -2495,12 +2593,17 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                                 if let Some(index) = app.selected_sport {
                                     if let Some(sport) = app.sports.get(index) {
                                         let sport_id = sport.0.clone();
-                                        app.load_competitions(&sport_id).await?;
-                                        app.selected_competition = if !app.competitions.is_empty() {
-                                            Some(0)
+                                        if let Err(e) = app.load_competitions(&sport_id).await {
+                                            app.error_message =
+                                                Some(format!("Failed to load competitions: {}", e));
                                         } else {
-                                            None
-                                        };
+                                            app.selected_competition =
+                                                if !app.competitions.is_empty() {
+                                                    Some(0)
+                                                } else {
+                                                    None
+                                                };
+                                        }
                                     }
                                 }
                             }
@@ -2510,7 +2613,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                             if let Some(index) = app.selected_order {
                                 let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
                                 if let Some(bet_id) = bet_id {
-                                    app.cancel_order(&bet_id).await?;
+                                    if let Err(e) = app.cancel_order(&bet_id).await {
+                                        app.error_message = Some(format!("Cancel order failed: {}", e));
+                                    }
                                 }
                             }
                         }
@@ -2607,7 +2712,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         if let Some(index) = app.selected_order {
                             let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
                             if let Some(bet_id) = bet_id {
-                                app.cancel_order(&bet_id).await?;
+                                if let Err(e) = app.cancel_order(&bet_id).await {
+                                    app.error_message = Some(format!("Cancel order failed: {}", e));
+                                }
                             }
                         }
                     }
@@ -2617,7 +2724,9 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                         if let Some(index) = app.selected_order {
                             let bet_id = app.active_orders.get(index).map(|o| o.bet_id.clone());
                             if let Some(bet_id) = bet_id {
-                                app.cancel_order(&bet_id).await?;
+                                if let Err(e) = app.cancel_order(&bet_id).await {
+                                    app.error_message = Some(format!("Cancel order failed: {}", e));
+                                }
                             }
                         }
                     }
@@ -2648,8 +2757,15 @@ async fn handle_input(app: &mut App, key: KeyCode) -> Result<bool> {
                 }
                 KeyCode::Enter => {
                     if !app.order_price.is_empty() && !app.order_size.is_empty() {
-                        app.place_order().await?;
-                        app.mode = AppMode::Browse;
+                        match app.place_order().await {
+                            Ok(_) => {
+                                app.mode = AppMode::Browse;
+                            }
+                            Err(e) => {
+                                app.error_message = Some(format!("Place order failed: {}", e));
+                                // Stay in order mode so user can correct and retry
+                            }
+                        }
                     }
                 }
                 KeyCode::Char('b') | KeyCode::Char('B') => {

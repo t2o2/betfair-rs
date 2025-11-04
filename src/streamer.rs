@@ -22,8 +22,9 @@ use tracing::{debug, error, info, warn};
 const STREAM_API_ENDPOINT: &str = "stream-api.betfair.com:443";
 const STREAM_API_HOST: &str = "stream-api.betfair.com";
 
-type OrderbookCallback =
-    Arc<dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static>;
+type OrderbookCallback = Arc<
+    dyn Fn(String, HashMap<String, Orderbook>, Option<MarketDefinition>) + Send + Sync + 'static,
+>;
 type OrderUpdateCallback = Arc<dyn Fn(OrderChangeMessage) + Send + Sync + 'static>;
 
 pub struct BetfairStreamer {
@@ -163,7 +164,9 @@ impl BetfairStreamer {
                     }
                 }
             }
-            warn!("BETFAIR_RS_DEBUG: WebSocket reader task ended (total messages: {message_count})");
+            warn!(
+                "BETFAIR_RS_DEBUG: WebSocket reader task ended (total messages: {message_count})"
+            );
         });
 
         // Send initial authentication message
@@ -419,7 +422,10 @@ impl BetfairStreamer {
                             } else {
                                 // Has "mc" field but failed to deserialize - this is a real error!
                                 error!("Failed to deserialize MarketChangeMessage: {}", e);
-                                error!("First 500 chars of message: {}", &message[..message.len().min(500)]);
+                                error!(
+                                    "First 500 chars of message: {}",
+                                    &message[..message.len().min(500)]
+                                );
                             }
                         }
                     }
@@ -550,9 +556,12 @@ impl BetfairStreamer {
             info!("Processing market change for market {market_id}");
 
             if let Some(ref market_def) = market_change.market_definition {
-                debug!("Market {market_id} has marketDefinition with status: {:?}, inPlay: {}",
-                    market_def.status, market_def.in_play);
-                self.market_definitions.insert(market_id.clone(), market_def.clone());
+                debug!(
+                    "Market {market_id} has marketDefinition with status: {:?}, inPlay: {}",
+                    market_def.status, market_def.in_play
+                );
+                self.market_definitions
+                    .insert(market_id.clone(), market_def.clone());
             }
 
             let market_orderbooks = self.orderbooks.entry(market_id.clone()).or_default();

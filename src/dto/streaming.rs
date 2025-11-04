@@ -105,6 +105,8 @@ pub struct MarketDefinition {
     pub version: Option<i64>,
     #[serde(rename = "priceLadderDefinition", default)]
     pub price_ladder_definition: Option<serde_json::Value>,
+    #[serde(rename = "eachWayDivisor", default)]
+    pub eachway_divisor: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -285,4 +287,40 @@ pub struct OrderSubscriptionMessage {
     pub segmentation_enabled: bool,
     #[serde(rename = "heartbeatMs", skip_serializing_if = "Option::is_none")]
     pub heartbeat_ms: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_market_definition_deserialize_with_eachway_divisor() {
+        let json = r#"{
+            "status": "OPEN",
+            "inPlay": false,
+            "complete": false,
+            "marketTime": "2024-01-01T12:00:00.000Z",
+            "eachWayDivisor": 4.0
+        }"#;
+
+        let result: Result<MarketDefinition, _> = serde_json::from_str(json);
+        assert!(result.is_ok());
+        let market_def = result.unwrap();
+        assert_eq!(market_def.eachway_divisor, Some(4.0));
+    }
+
+    #[test]
+    fn test_market_definition_deserialize_without_eachway_divisor() {
+        let json = r#"{
+            "status": "OPEN",
+            "inPlay": false,
+            "complete": false,
+            "marketTime": "2024-01-01T12:00:00.000Z"
+        }"#;
+
+        let result: Result<MarketDefinition, _> = serde_json::from_str(json);
+        assert!(result.is_ok());
+        let market_def = result.unwrap();
+        assert_eq!(market_def.eachway_divisor, None);
+    }
 }

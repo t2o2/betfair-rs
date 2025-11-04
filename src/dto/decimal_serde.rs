@@ -73,8 +73,7 @@ pub mod vec_array3 {
         D: Deserializer<'de>,
     {
         let vec = Vec::<[serde_json::Number; 3]>::deserialize(deserializer)?;
-        vec
-            .into_iter()
+        vec.into_iter()
             .map(|[a, b, c]| {
                 Ok([
                     Decimal::from_str(&a.to_string()).map_err(serde::de::Error::custom)?,
@@ -91,10 +90,7 @@ pub mod option_vec_array3 {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::str::FromStr;
 
-    pub fn serialize<S>(
-        value: &Option<Vec<[Decimal; 3]>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Option<Vec<[Decimal; 3]>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -122,8 +118,7 @@ pub mod option_vec_array3 {
     {
         let opt = Option::<Vec<[serde_json::Number; 3]>>::deserialize(deserializer)?;
         opt.map(|vec| {
-            vec
-                .into_iter()
+            vec.into_iter()
                 .map(|[a, b, c]| {
                     Ok([
                         Decimal::from_str(&a.to_string()).map_err(serde::de::Error::custom)?,
@@ -142,10 +137,7 @@ pub mod option_vec_vec_decimal {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::str::FromStr;
 
-    pub fn serialize<S>(
-        value: &Option<Vec<Vec<Decimal>>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Option<Vec<Vec<Decimal>>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -172,12 +164,13 @@ pub mod option_vec_vec_decimal {
     {
         let opt = Option::<Vec<Vec<serde_json::Number>>>::deserialize(deserializer)?;
         opt.map(|vec| {
-            vec
-                .into_iter()
+            vec.into_iter()
                 .map(|inner| {
                     inner
                         .into_iter()
-                        .map(|num| Decimal::from_str(&num.to_string()).map_err(serde::de::Error::custom))
+                        .map(|num| {
+                            Decimal::from_str(&num.to_string()).map_err(serde::de::Error::custom)
+                        })
                         .collect()
                 })
                 .collect::<Result<Vec<Vec<Decimal>>, _>>()

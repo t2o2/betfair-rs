@@ -166,9 +166,7 @@ impl RestClient {
         let status = self.get_login_status(&response);
         if !status.is_empty() && status.to_uppercase() != "SUCCESS" {
             let error_msg = self.get_error_message(&response, &status);
-            return Err(anyhow::anyhow!(
-                "Interactive login {status}: {error_msg}"
-            ));
+            return Err(anyhow::anyhow!("Interactive login {status}: {error_msg}"));
         }
 
         if session_token.is_empty() {

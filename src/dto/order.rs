@@ -414,6 +414,7 @@ pub struct ItemDescription {
     pub runner_desc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_winners: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub each_way_divisor: Option<Decimal>,
