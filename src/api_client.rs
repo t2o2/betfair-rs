@@ -89,7 +89,14 @@ impl RestClient {
                     let response_text = http_response.text().await?;
                     tracing::info!("Login response: {}", response_text);
 
-                    let response: LoginResponse = serde_json::from_str(&response_text)?;
+                    let response: LoginResponse = serde_json::from_str(&response_text)
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to deserialize login response: {}\nResponse body: {}",
+                                e,
+                                response_text
+                            )
+                        })?;
 
                     Ok(response)
                 }
