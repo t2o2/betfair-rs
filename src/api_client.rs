@@ -402,6 +402,19 @@ impl RestClient {
             .await
     }
 
+    /// List currency exchange rates
+    /// 
+    /// Returns a list of currency rates based on given currency.
+    /// Currently only GBP is supported as the from_currency parameter.
+    pub async fn list_currency_rates(
+        &self,
+        request: ListCurrencyRatesRequest,
+    ) -> Result<Vec<CurrencyRate>> {
+        self.rate_limiter.acquire_for_data().await?;
+        self.make_json_rpc_request(ACCOUNT_URL, "AccountAPING/v1.0/listCurrencyRates", request)
+            .await
+    }
+
     // ========================================================================
     // Helper Methods for Common Operations
     // ========================================================================
@@ -1121,5 +1134,23 @@ mod tests {
         };
 
         assert!(request.wallet.is_some());
+    }
+
+    #[test]
+    fn test_list_currency_rates_request() {
+        let request = ListCurrencyRatesRequest {
+            from_currency: Some("GBP".to_string()),
+        };
+
+        assert_eq!(request.from_currency, Some("GBP".to_string()));
+    }
+
+    #[test]
+    fn test_list_currency_rates_request_default() {
+        let request = ListCurrencyRatesRequest {
+            from_currency: None,
+        };
+
+        assert!(request.from_currency.is_none());
     }
 }

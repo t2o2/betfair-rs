@@ -165,6 +165,33 @@ BETFAIR_API_KEY=your_api_key
 
 See `examples/interactive_login_test.rs` for usage example.
 
+## API Operations
+
+The library provides comprehensive access to Betfair's API operations:
+
+### Account Operations
+- **`get_account_funds()`** - Retrieve account balance and exposure
+- **`get_account_details()`** - Get account profile information
+- **`transfer_funds()`** - Transfer funds between wallets
+- **`list_currency_rates()`** - Get current currency exchange rates (from GBP)
+
+### Betting Operations
+- **`list_event_types()`** - List available sports
+- **`list_competitions()`** - List competitions for sports
+- **`list_market_catalogue()`** - Get market information
+- **`list_market_book()`** - Get live market prices and status
+- **`place_orders()`** - Place new bets
+- **`cancel_orders()`** - Cancel existing bets
+- **`replace_orders()`** - Modify existing bets
+- **`update_orders()`** - Update bet persistence
+- **`list_current_orders()`** - Get active orders
+- **`list_cleared_orders()`** - Get settled bets
+
+### Streaming Operations
+- **`subscribe_to_markets()`** - Stream real-time market data
+- **`subscribe_to_orders()`** - Stream order updates
+- **`get_orderbooks()`** - Access cached orderbook data
+
 ## API Design Principles
 
 1. **Optional Filtering Pattern**: Methods accept `Option<MarketFilter>` for flexibility
@@ -211,6 +238,20 @@ cargo run --example interactive_login_test
 - Uses `login_interactive()` method
 - Loads credentials from environment variables or `.env` file
 - Tests basic API calls after authentication
+
+### `currency_rates.rs` - Currency Exchange Rates
+Fetches and displays current currency exchange rates from Betfair:
+```bash
+# Set environment variables first
+export BETFAIR_USERNAME="your_username"
+export BETFAIR_PASSWORD="your_password"
+export BETFAIR_API_KEY="your_api_key"
+
+cargo run --example currency_rates
+```
+- Demonstrates the `list_currency_rates()` API call
+- Shows exchange rates from GBP to all supported currencies
+- Uses interactive login (no certificate required)
 
 ### `streaming_orderbook.rs` - Real-time Market Data
 Monitor live orderbook changes for specific markets:

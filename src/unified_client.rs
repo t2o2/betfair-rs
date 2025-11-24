@@ -180,6 +180,14 @@ impl BetfairClient {
         self.api_client.get_account_details().await
     }
 
+    /// List currency exchange rates
+    pub async fn list_currency_rates(
+        &self,
+        request: ListCurrencyRatesRequest,
+    ) -> Result<Vec<CurrencyRate>> {
+        self.api_client.list_currency_rates(request).await
+    }
+
     // ========== Streaming Methods ==========
 
     /// Start the streaming client
