@@ -95,3 +95,21 @@ pub struct TransferFundsRequest {
 pub struct TransferFundsResponse {
     pub transaction_id: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCurrencyRatesRequest {
+    /// The currency from which the rates are computed. Currently only "GBP" is supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_currency: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrencyRate {
+    /// Three letter ISO 4217 code
+    pub currency_code: String,
+    /// Exchange rate for the currency
+    #[serde(with = "super::decimal_serde")]
+    pub rate: Decimal,
+}
