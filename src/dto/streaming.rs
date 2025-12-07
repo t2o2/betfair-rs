@@ -172,19 +172,24 @@ pub struct OrderChange {
 pub struct OrderRunnerChange {
     pub id: u64,
     #[serde(rename = "hc")]
+    #[serde(default)]
     #[serde(with = "super::decimal_serde::option")]
     pub handicap: Option<Decimal>,
     #[serde(rename = "fullImage", default)]
     pub full_image: bool,
     #[serde(rename = "uo")]
+    #[serde(default)]
     pub unmatched_orders: Option<Vec<UnmatchedOrder>>,
     #[serde(rename = "mb")]
+    #[serde(default)]
     #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
     pub matched_backs: Option<Vec<Vec<Decimal>>>,
     #[serde(rename = "ml")]
+    #[serde(default)]
     #[serde(with = "super::decimal_serde::option_vec_vec_decimal")]
     pub matched_lays: Option<Vec<Vec<Decimal>>>,
     #[serde(rename = "smc")]
+    #[serde(default)]
     pub strategy_matches: Option<std::collections::HashMap<String, StrategyMatchChange>>,
 }
 
