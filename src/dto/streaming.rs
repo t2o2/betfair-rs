@@ -238,6 +238,9 @@ pub struct UnmatchedOrder {
     pub rac: Option<String>,
     #[serde(default)]
     pub rc: Option<String>,
+    /// Customer Order Reference (rfo = Reference For Order)
+    /// This field contains the sanitized internal_order_id we passed when placing the order
+    /// (no hyphens, max 32 chars)
     #[serde(default)]
     pub rfo: Option<String>,
     #[serde(default)]
