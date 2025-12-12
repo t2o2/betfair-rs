@@ -340,59 +340,83 @@ pub struct ListClearedOrdersResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClearedOrderSummary {
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_type_id: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_id: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_id: Option<i64>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub handicap: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_id: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placed_date: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persistence_type: Option<PersistenceType>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order_type: Option<OrderType>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub side: Option<Side>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_description: Option<ItemDescription>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_outcome: Option<BetOutcome>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub price_requested: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settled_date: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_matched_date: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_count: Option<i32>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub commission: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub price_matched: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price_reduced: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub size_settled: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub profit: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "super::decimal_serde::option")]
     pub size_cancelled: Option<Decimal>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_order_ref: Option<String>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_strategy_ref: Option<String>,
 }
