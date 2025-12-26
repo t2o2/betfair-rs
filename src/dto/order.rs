@@ -443,3 +443,77 @@ pub struct ItemDescription {
     #[serde(with = "super::decimal_serde::option")]
     pub each_way_divisor: Option<Decimal>,
 }
+
+// ========================================================================
+// Replace Orders (Atomic cancel + place for sub-minimum bet sizes)
+// ========================================================================
+
+/// Request to replace existing orders with new orders atomically.
+/// This operation cancels the original order and places a new order at a different price.
+/// The key benefit is that it handles sub-minimum bet sizes that would be rejected
+/// if done as separate cancel + place operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOrdersRequest {
+    /// The market ID for the orders
+    pub market_id: String,
+    /// The list of replace instructions
+    pub instructions: Vec<ReplaceInstruction>,
+    /// Optional customer reference for the request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_ref: Option<String>,
+    /// Optional market version for optimistic locking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_version: Option<MarketVersion>,
+    /// Whether to run asynchronously
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "async")]
+    pub async_: Option<bool>,
+}
+
+/// Instruction for replacing a single order
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceInstruction {
+    /// The bet ID of the order to be replaced
+    pub bet_id: String,
+    /// The new price for the replacement order
+    #[serde(with = "super::decimal_serde")]
+    pub new_price: Decimal,
+}
+
+/// Response from a replace orders request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOrdersResponse {
+    /// Overall status of the replace operation (SUCCESS or FAILURE)
+    pub status: String,
+    /// Error code if the operation failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    /// The market ID
+    pub market_id: String,
+    /// Reports for each instruction
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_reports: Option<Vec<ReplaceInstructionReport>>,
+    /// Customer reference echoed back
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_ref: Option<String>,
+}
+
+/// Report for a single replace instruction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceInstructionReport {
+    /// Status of this instruction (SUCCESS or FAILURE)
+    pub status: String,
+    /// Error code if this instruction failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    /// The cancel instruction report for the cancelled order
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_instruction_report: Option<CancelInstructionReport>,
+    /// The place instruction report for the new order
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_instruction_report: Option<PlaceInstructionReport>,
+}
