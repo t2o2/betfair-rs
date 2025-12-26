@@ -347,6 +347,24 @@ impl RestClient {
             .await
     }
 
+    /// Replace orders atomically (cancel + place in one operation)
+    ///
+    /// This operation is useful for:
+    /// - Replacing orders with sub-minimum bet sizes that would be rejected
+    ///   if done as separate cancel + place operations
+    /// - Reducing latency by performing cancel and place atomically
+    ///
+    /// The operation will cancel the existing order and place a new order
+    /// at the specified price, preserving the remaining unmatched size.
+    pub async fn replace_orders(
+        &self,
+        request: ReplaceOrdersRequest,
+    ) -> Result<ReplaceOrdersResponse> {
+        self.rate_limiter.acquire_for_transaction().await?;
+        self.make_json_rpc_request(BETTING_URL, "SportsAPING/v1.0/replaceOrders", request)
+            .await
+    }
+
     /// List current orders
     pub async fn list_current_orders(
         &self,
@@ -1061,6 +1079,53 @@ mod tests {
         assert_eq!(request.market_id, "1.123456");
         assert_eq!(request.instructions[0].bet_id, "12345");
         assert_eq!(request.instructions[0].size_reduction.unwrap(), dec!(5.0));
+    }
+
+    #[test]
+    fn test_replace_orders_request_builder() {
+        let request = ReplaceOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![ReplaceInstruction {
+                bet_id: "12345".to_string(),
+                new_price: dec!(2.5),
+            }],
+            customer_ref: Some("my_ref".to_string()),
+            market_version: None,
+            async_: None,
+        };
+
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions[0].bet_id, "12345");
+        assert_eq!(request.instructions[0].new_price, dec!(2.5));
+        assert_eq!(request.customer_ref, Some("my_ref".to_string()));
+    }
+
+    #[test]
+    fn test_replace_orders_request_multiple_instructions() {
+        let request = ReplaceOrdersRequest {
+            market_id: "1.123456".to_string(),
+            instructions: vec![
+                ReplaceInstruction {
+                    bet_id: "12345".to_string(),
+                    new_price: dec!(2.5),
+                },
+                ReplaceInstruction {
+                    bet_id: "67890".to_string(),
+                    new_price: dec!(3.0),
+                },
+            ],
+            customer_ref: None,
+            market_version: None,
+            async_: Some(true),
+        };
+
+        assert_eq!(request.market_id, "1.123456");
+        assert_eq!(request.instructions.len(), 2);
+        assert_eq!(request.instructions[0].bet_id, "12345");
+        assert_eq!(request.instructions[0].new_price, dec!(2.5));
+        assert_eq!(request.instructions[1].bet_id, "67890");
+        assert_eq!(request.instructions[1].new_price, dec!(3.0));
+        assert_eq!(request.async_, Some(true));
     }
 
     #[test]

@@ -151,6 +151,19 @@ impl BetfairClient {
         self.api_client.cancel_orders(request).await
     }
 
+    /// Replace orders atomically (cancel + place in one operation)
+    ///
+    /// This operation is useful for:
+    /// - Replacing orders with sub-minimum bet sizes that would be rejected
+    ///   if done as separate cancel + place operations
+    /// - Reducing latency by performing cancel and place atomically
+    pub async fn replace_orders(
+        &self,
+        request: ReplaceOrdersRequest,
+    ) -> Result<ReplaceOrdersResponse> {
+        self.api_client.replace_orders(request).await
+    }
+
     /// List current orders
     pub async fn list_current_orders(
         &self,
